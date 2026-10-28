@@ -11,8 +11,9 @@ app.use(cors({ origin: true }));
 const path = require('node:path');
 app.get('/hls.min.js', (req, res) => res.sendFile(require.resolve('hls.js/dist/hls.min.js')));
 app.get('/favicon.svg', (req, res) => res.sendFile(path.join(__dirname, 'nuvio-plugin/logo.svg')));
-app.get('/download/VietStream-v1.2-debug.apk', (req, res) =>
-  res.download(path.join(__dirname, 'downloads/VietStream-v1.2-debug.apk')));
+app.get('/download/VietStream.apk', (req, res) =>
+  res.download(path.join(__dirname, 'downloads/VietStream-v1.3-debug.apk'), 'VietStream.apk'));
+app.get('/download/VietStream-v1.2-debug.apk', (req, res) => res.redirect(302, '/download/VietStream.apk'));
 app.get('/mobile-app.css', (req, res) => res.sendFile(path.join(__dirname, 'src/mobile-app.css')));
 app.get('/mobile-app.js', (req, res) => res.sendFile(path.join(__dirname, 'src/mobile-app.js')));
 app.get('/', (req, res) => res.redirect('/app'));
