@@ -2,10 +2,13 @@ package com.vietstream.mobile;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -19,6 +22,20 @@ public class MainActivity extends Activity {
   private View fullscreenView;
   private WebChromeClient.CustomViewCallback fullscreenCallback;
   private int retryCount;
+  private boolean appFullscreen;
+
+  public final class PlayerBridge {
+    @JavascriptInterface public void enterFullscreen() {
+      runOnUiThread(() -> {
+        appFullscreen = true;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+      });
+    }
+    @JavascriptInterface public void exitFullscreen() {
+      runOnUiThread(() -> exitAppFullscreen());
+    }
+  }
 
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
@@ -32,6 +49,7 @@ public class MainActivity extends Activity {
     settings.setSupportZoom(true);
     settings.setBuiltInZoomControls(true);
     settings.setDisplayZoomControls(false);
+    web.addJavascriptInterface(new PlayerBridge(), "VietStreamAndroid");
     web.setWebViewClient(new WebViewClient() {
       @Override public void onPageFinished(WebView view, String url) { retryCount = 0; }
       @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
@@ -51,13 +69,24 @@ public class MainActivity extends Activity {
         fullscreenCallback = callback;
         root.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.setVisibility(View.GONE);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
       }
       @Override public void onHideCustomView() { exitFullscreen(); }
     });
     root.addView(web);
     setContentView(root);
-    web.loadUrl(APP_URL);
+    if (state == null || web.restoreState(state) == null) web.loadUrl(APP_URL);
+  }
+
+  @Override public void onConfigurationChanged(Configuration configuration) {
+    super.onConfigurationChanged(configuration);
+    // Keep the same WebView and video when the phone rotates in fullscreen.
+  }
+
+  @Override protected void onSaveInstanceState(Bundle state) {
+    web.saveState(state);
+    super.onSaveInstanceState(state);
   }
 
   private void exitFullscreen() {
@@ -65,13 +94,23 @@ public class MainActivity extends Activity {
     root.removeView(fullscreenView);
     fullscreenView = null;
     web.setVisibility(View.VISIBLE);
+    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     getWindow().getDecorView().setSystemUiVisibility(0);
     if (fullscreenCallback != null) fullscreenCallback.onCustomViewHidden();
     fullscreenCallback = null;
   }
 
+  private void exitAppFullscreen() {
+    if (!appFullscreen) return;
+    appFullscreen = false;
+    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    getWindow().getDecorView().setSystemUiVisibility(0);
+    web.evaluateJavascript("document.body.classList.remove('player-fullscreen')", null);
+  }
+
   @Override public void onBackPressed() {
     if (fullscreenView != null) exitFullscreen();
+    else if (appFullscreen) exitAppFullscreen();
     else if (web.canGoBack()) web.goBack();
     else super.onBackPressed();
   }

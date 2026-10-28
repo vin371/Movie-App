@@ -1,4 +1,4 @@
 plugins { id 'com.android.application' version '8.13.2' }
 android { namespace 'com.vietstream.mobile'; compileSdk 35
- defaultConfig { applicationId 'com.vietstream.mobile'; minSdk 24; targetSdk 28; versionCode 5; versionName '1.4' } }
+ defaultConfig { applicationId 'com.vietstream.mobile'; minSdk 24; targetSdk 28; versionCode 6; versionName '1.5' } }
 
