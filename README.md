@@ -4,6 +4,12 @@
 
 Giao diện xem phim chạy cùng máy chủ Node.js tại `/app` (trang `/` tự chuyển tới đó). Các API catalog, tìm kiếm, chi tiết, nguồn phát và HLS proxy đều nằm trong cùng dịch vụ. Mã Android WebView nằm ở `android/`; mở thư mục này bằng Android Studio để build APK. Khi mở ứng dụng Android lần đầu, nhập URL máy chủ, ví dụ `https://<ten-dich-vu>.onrender.com`.
 
+### Cập nhật tự động
+
+GitHub Actions (`.github/workflows/ci.yml`) kiểm tra máy chủ và build APK debug sau mỗi lần push lên `main`. File APK của từng lần build nằm ở mục **Actions → Build and verify → Artifacts**. Render tự triển khai mã web/API sau mỗi commit trên `main` nhờ `autoDeployTrigger: commit` trong `render.yaml`.
+
+APK Android tải giao diện trực tiếp từ URL Render mỗi lần mở ứng dụng, vì vậy **thay đổi giao diện/API không yêu cầu tải APK lại**. Các thay đổi mã Android, quyền ứng dụng hoặc icon vẫn cần cài APK mới (hoặc phân phối qua cửa hàng ứng dụng). APK debug từ GitHub Actions chỉ phục vụ kiểm thử; khóa ký debug của CI khác khóa ký trên máy lập trình, nên không dùng để cập nhật đè bản debug cũ.
+
 ### Deploy lên Render
 
 1. Kết nối repo `vin371/Movie-App` với Render.

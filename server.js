@@ -10,6 +10,7 @@ app.disable('x-powered-by');
 app.use(cors({ origin: true }));
 const path = require('node:path');
 app.get('/hls.min.js', (req, res) => res.sendFile(require.resolve('hls.js/dist/hls.min.js')));
+app.get('/favicon.svg', (req, res) => res.sendFile(path.join(__dirname, 'nuvio-plugin/logo.svg')));
 app.get('/mobile-app.css', (req, res) => res.sendFile(path.join(__dirname, 'src/mobile-app.css')));
 app.get('/mobile-app.js', (req, res) => res.sendFile(path.join(__dirname, 'src/mobile-app.js')));
 app.get('/', (req, res) => res.redirect('/app'));
