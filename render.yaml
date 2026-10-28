@@ -1,0 +1,19 @@
+# Render Blueprint — tự động deploy khi bấm nút "Deploy to Render"
+services:
+  - type: web
+    name: movie-app-vietstream
+    runtime: node
+    plan: free
+    region: singapore   # gần Việt Nam nhất; có thể đổi: oregon | frankfurt | ohio | virginia
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /manifest.json
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Tuỳ chọn: bật nguồn khi deploy — bỏ comment và sửa nếu cần
+      # - key: PROVIDERS
+      #   value: kkphim,nguonc,phim4k,vnstream,ophim
+      # - key: PROXY_PROVIDERS
+      #   value: nguonc
