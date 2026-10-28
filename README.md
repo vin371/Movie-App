@@ -8,6 +8,8 @@ Giao diện xem phim chạy cùng máy chủ Node.js tại `/app` (trang `/` t�
 
 GitHub Actions (`.github/workflows/ci.yml`) kiểm tra máy chủ và build APK debug sau mỗi lần push lên `main`. File APK của từng lần build nằm ở mục **Actions → Build and verify → Artifacts**. Render tự triển khai mã web/API sau mỗi commit trên `main` nhờ `autoDeployTrigger: commit` trong `render.yaml`.
 
+APK cài lần đầu có link tải trực tiếp tại `https://movie-app-vietstream.onrender.com/download/VietStream-v1.2-debug.apk` sau khi Render triển khai commit chứa file APK.
+
 APK Android tải giao diện trực tiếp từ URL Render mỗi lần mở ứng dụng, vì vậy **thay đổi giao diện/API không yêu cầu tải APK lại**. Các thay đổi mã Android, quyền ứng dụng hoặc icon vẫn cần cài APK mới (hoặc phân phối qua cửa hàng ứng dụng). APK debug từ GitHub Actions chỉ phục vụ kiểm thử; khóa ký debug của CI khác khóa ký trên máy lập trình, nên không dùng để cập nhật đè bản debug cũ.
 
 ### Deploy lên Render
