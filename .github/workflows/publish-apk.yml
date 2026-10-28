@@ -1,0 +1,28 @@
+name: Publish Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'downloads/VietStream-v1.4-debug.apk'
+      - '.github/workflows/publish-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish APK as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.4 downloads/VietStream-v1.4-debug.apk \
+            --target "$GITHUB_SHA" \
+            --title "VietStream Android v1.4" \
+            --notes "Tự kết nối Render, poster đúng tỷ lệ và hỗ trợ xem toàn màn hình. APK debug để cài trực tiếp trên điện thoại Android." \
+            --prerelease
+

@@ -18,8 +18,10 @@ class Phim4kProvider extends BaseProvider {
       originalName: item.origin_name,
       year: item.year,
       type,
-      poster: mapImageUrl(item.poster_url, null),
-      background: mapImageUrl(item.thumb_url, null),
+      // VSMOV names these fields opposite to their actual image shapes:
+      // thumb_url is portrait (500x750), poster_url is landscape (500x281).
+      poster: mapImageUrl(item.thumb_url, null),
+      background: mapImageUrl(item.poster_url, null),
       imdbId: item.imdb?.id || null,
       quality: item.quality,
       lang: item.lang,
@@ -86,8 +88,8 @@ class Phim4kProvider extends BaseProvider {
         quality: m.quality,
         lang: m.lang,
         time: m.time,
-        poster: mapImageUrl(m.poster_url, null),
-        background: mapImageUrl(m.thumb_url, null),
+        poster: mapImageUrl(m.thumb_url, null),
+        background: mapImageUrl(m.poster_url, null),
         description: stripHtml(m.content),
         genres: Array.isArray(m.category) ? m.category.map((c) => c.name || c.slug) : [],
         imdbId: m.imdb?.id || null,
@@ -131,3 +133,4 @@ class Phim4kProvider extends BaseProvider {
 }
 
 module.exports = { Phim4kProvider };
+

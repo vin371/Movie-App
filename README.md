@@ -2,13 +2,13 @@
 
 ## Movie App: giao diện web và Android
 
-Giao diện xem phim chạy cùng máy chủ Node.js tại `/app` (trang `/` tự chuyển tới đó). Các API catalog, tìm kiếm, chi tiết, nguồn phát và HLS proxy đều nằm trong cùng dịch vụ. Mã Android WebView nằm ở `android/`; mở thư mục này bằng Android Studio để build APK. Khi mở ứng dụng Android lần đầu, nhập URL máy chủ, ví dụ `https://<ten-dich-vu>.onrender.com`.
+Giao diện xem phim chạy cùng máy chủ Node.js tại `/app` (trang `/` tự chuyển tới đó). Các API catalog, tìm kiếm, chi tiết, nguồn phát và HLS proxy đều nằm trong cùng dịch vụ. Mã Android WebView nằm ở `android/`; mở thư mục này bằng Android Studio để build APK. Ứng dụng Android tự mở `https://movie-app-vietstream.onrender.com/app`, không cần nhập địa chỉ máy chủ.
 
 ### Cập nhật tự động
 
 GitHub Actions (`.github/workflows/ci.yml`) kiểm tra máy chủ và build APK debug sau mỗi lần push lên `main`. File APK của từng lần build nằm ở mục **Actions → Build and verify → Artifacts**. Render tự triển khai mã web/API sau mỗi commit trên `main` nhờ `autoDeployTrigger: commit` trong `render.yaml`.
 
-APK cài lần đầu có link tải trực tiếp, ổn định tại `https://movie-app-vietstream.onrender.com/download/VietStream.apk` sau khi Render triển khai commit chứa file APK.
+APK v1.4 có trên [GitHub Releases](https://github.com/vin371/Movie-App/releases/tag/v1.4) sau khi workflow `Publish Android APK` hoàn tất. Link tải trực tiếp ổn định từ Render là `https://movie-app-vietstream.onrender.com/download/VietStream.apk` sau khi Render triển khai commit chứa file APK.
 
 APK Android tải giao diện trực tiếp từ URL Render mỗi lần mở ứng dụng, vì vậy **thay đổi giao diện/API không yêu cầu tải APK lại**. Các thay đổi mã Android, quyền ứng dụng hoặc icon vẫn cần cài APK mới (hoặc phân phối qua cửa hàng ứng dụng). APK debug từ GitHub Actions chỉ phục vụ kiểm thử; khóa ký debug của CI khác khóa ký trên máy lập trình, nên không dùng để cập nhật đè bản debug cũ.
 
@@ -17,7 +17,7 @@ APK Android tải giao diện trực tiếp từ URL Render mỗi lần mở ứ
 1. Kết nối repo `vin371/Movie-App` với Render.
 2. Chọn **New → Blueprint**, chọn nhánh `main`; Render đọc `render.yaml` ở gốc repo để tạo Web Service Node tại Singapore.
 3. Sau khi deploy thành công, mở URL `https://<ten-dich-vu>.onrender.com/app`. Kiểm tra `/manifest.json` để xác nhận API hoạt động.
-4. Dán URL HTTPS của Render vào hộp **Địa chỉ máy chủ VietStream** trong APK. Mỗi lần push lên `main`, Render sẽ tự triển khai lại.
+4. Cài APK v1.4; ứng dụng tự kết nối URL Render ở trên. Mỗi lần push lên `main`, Render sẽ tự triển khai lại.
 
 Có thể tạo **New → Web Service** thủ công với build command `npm ci`, start command `npm start`, health check path `/manifest.json`.
 
@@ -154,3 +154,4 @@ Sau đó khai báo trong `src/config.js` (`PROVIDERS`) và `src/manifest.js` (`C
 
 Addon chỉ **tổng hợp và trỏ tới** các API công khai của bên thứ ba, không lưu trữ nội dung nào.
 Dành cho mục đích cá nhân và học tập; người dùng tự chịu trách nhiệm khi sử dụng theo quy định địa phương.
+
