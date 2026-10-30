@@ -61,7 +61,7 @@ const PROVIDERS = {
     siteUrl: process.env.PHIM4K_SITE_URL || 'https://vsmov.com',
     referer: 'https://vsmov.com/',
     enabled: ENABLED_LIST ? ENABLED_LIST.includes('phim4k') : true,
-    proxy: true
+    proxy: false
   },
   tophim: {
     id: 'tophim',
@@ -94,3 +94,4 @@ const CONFIG = {
 };
 
 module.exports = { CONFIG, PROVIDERS };
+

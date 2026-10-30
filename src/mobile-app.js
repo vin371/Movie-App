@@ -12,7 +12,8 @@ const state = {
   hls: null,
   searchQuery: '',
   searchResults: [],
-  history: []
+  history: [],
+  screenLocked: true // Mặc định khóa màn hình dọc cho mobile
 };
 
 const saved = () => { try { return JSON.parse(localStorage.getItem('vietstream-library') || '[]'); } catch { return []; } };
@@ -20,35 +21,54 @@ const save = items => localStorage.setItem('vietstream-library', JSON.stringify(
 const status = (message) => { app.innerHTML = `<div class="loading">${escapeHtml(message)}</div>`; };
 const error = (e) => { app.innerHTML = `<div class="page"><h1 class="page-title">Không tải được nội dung</h1><p class="notice">${escapeHtml(e.message)}</p><button class="primary" data-action="home">Thử lại</button></div>`; };
 
-// Thông báo cho Android app lock/unlock xoay màn hình
-function notifyNativeOrientation(mode) {
+// Khóa/mở khóa xoay màn hình (Native Android bridge hoặc Screen Orientation API)
+function updateOrientation(isPlayer = false) {
   if (window.VietStreamAndroid) {
-    if (mode === 'player') {
-      if (typeof window.VietStreamAndroid.enterPlayerMode === 'function') {
-        window.VietStreamAndroid.enterPlayerMode();
+    if (isPlayer) {
+      if (!state.screenLocked) {
+        window.VietStreamAndroid.enterPlayerMode?.();
+      } else {
+        window.VietStreamAndroid.enterPortraitMode?.();
       }
     } else {
-      if (typeof window.VietStreamAndroid.enterPortraitMode === 'function') {
-        window.VietStreamAndroid.enterPortraitMode();
-      }
+      window.VietStreamAndroid.enterPortraitMode?.();
     }
+  }
+
+  // Web Screen Orientation API (cho Chrome/Android PWA)
+  if (screen.orientation && typeof screen.orientation.lock === 'function') {
+    if (!isPlayer || state.screenLocked) {
+      screen.orientation.lock('portrait').catch(() => {});
+    } else {
+      screen.orientation.unlock?.();
+    }
+  }
+}
+
+function toggleScreenLock() {
+  state.screenLocked = !state.screenLocked;
+  updateOrientation(state.view === 'player');
+  const btn = document.getElementById('screen-lock-btn');
+  if (btn) {
+    btn.innerHTML = state.screenLocked ? '🔒 Khóa xoay: BẬT' : '🔓 Khóa xoay: TẮT';
+    btn.classList.toggle('active', state.screenLocked);
   }
 }
 
 function setView(view, push = true) {
   if (push && state.view && state.view !== view) {
-    state.history.push({ view: state.view, lastDetail: state.lastDetail ? { ...state.lastDetail } : null });
+    state.history.push({ 
+      view: state.view, 
+      lastDetail: state.lastDetail ? { ...state.lastDetail } : null,
+      searchQuery: state.searchQuery,
+      searchResults: state.searchResults ? [...state.searchResults] : []
+    });
   }
   state.view = view;
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   window.scrollTo(0, 0);
 
-  // Khóa màn hình xoay dọc khi ở các màn thông thường, cho phép xoay khi ở player
-  if (view === 'player') {
-    notifyNativeOrientation('player');
-  } else {
-    notifyNativeOrientation('portrait');
-  }
+  updateOrientation(view === 'player');
 }
 
 function goBack() {
@@ -72,6 +92,8 @@ function goBack() {
   }
 
   if (prev.view === 'search') {
+    state.searchQuery = prev.searchQuery || state.searchQuery;
+    state.searchResults = prev.searchResults || state.searchResults;
     search(false);
   } else if (prev.view === 'series') {
     series(false);
@@ -87,7 +109,7 @@ function goBack() {
 // Bắt phím Back của Android thông qua WebView
 window.handleAndroidBack = function() {
   if (state.view === 'home' && state.history.length === 0) {
-    return false; // Cho phép Android thoát hoặc xử lý bình thường
+    return false;
   }
   goBack();
   return true;
@@ -97,16 +119,23 @@ function card(item) {
   return `<button class="card" data-action="detail" data-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.type || 'movie')}"><img class="poster" src="${escapeHtml(item.poster || item.background || '')}" alt="" loading="lazy"><div class="card-body"><div class="card-title">${escapeHtml(item.name)}</div><div class="card-info">${escapeHtml(item.releaseInfo || item.year || 'Phim')}</div></div></button>`;
 }
 
-const catalog = async (type, id) => { try { return (await api(`/catalog/${type}/${id}.json`)).metas || []; } catch { return []; } };
+const catalog = async (type, id) => { 
+  try { 
+    return (await api(`/catalog/${type}/${id}.json`)).metas || []; 
+  } catch { 
+    return []; 
+  } 
+};
 
 async function home(push = true) {
   setView('home', push);
   status('Đang tải phim...');
   try {
+    // Ưu tiên các nguồn nhanh nhất tại Việt Nam (KKphim + Phim4K)
     const [featured, other, seriesList] = await Promise.all([
+      catalog('movie', 'kkphim-phim-le'),
       catalog('movie', 'phim4k-phim-le'),
-      catalog('movie', 'nguonc-phim-le'),
-      catalog('series', 'nguonc-phim-bo')
+      catalog('series', 'kkphim-phim-bo')
     ]);
     state.items = [...featured, ...other, ...seriesList];
     const hero = featured[0] || other[0];
@@ -114,7 +143,33 @@ async function home(push = true) {
       app.innerHTML = '<div class="empty">Hiện chưa có dữ liệu phim từ các nguồn.</div>';
       return;
     }
-    app.innerHTML = `<section class="hero"><img class="hero-image" src="${escapeHtml(hero.background || hero.poster)}" alt=""><div class="hero-content"><div class="eyebrow">Phim nổi bật · ${escapeHtml(hero.releaseInfo || hero.year)}</div><h1>${escapeHtml(hero.name)}</h1><p>Chọn phim và nguồn phát để bắt đầu xem. Danh sách được cập nhật trực tiếp từ máy chủ VietStream.</p><div class="actions"><button class="primary" data-action="detail" data-id="${escapeHtml(hero.id)}" data-type="${escapeHtml(hero.type || 'movie')}">▶ Xem ngay</button><button class="secondary" data-action="library-toggle" data-id="${escapeHtml(hero.id)}">＋ Tủ phim</button></div></div></section><section><div class="section-head"><h2>Phim mới cập nhật</h2><small>${featured.length} phim</small></div><div class="grid">${featured.map(card).join('')}</div></section><section><div class="section-head"><h2>Khám phá thêm</h2><small>NguonC</small></div><div class="grid">${other.map(card).join('')}</div></section><section><div class="section-head"><h2>Phim bộ</h2><small>NguonC</small></div><div class="grid">${seriesList.slice(0, 10).map(card).join('')}</div></section>`;
+    app.innerHTML = `
+      <section class="hero">
+        <img class="hero-image" src="${escapeHtml(hero.background || hero.poster)}" alt="">
+        <div class="hero-content">
+          <div class="eyebrow">Phim nổi bật · ${escapeHtml(hero.releaseInfo || hero.year)}</div>
+          <h1>${escapeHtml(hero.name)}</h1>
+          <p>Chọn phim và nguồn phát mượt mà (KKphim, Phim4K, NguonC). Danh sách được cập nhật trực tiếp.</p>
+          <div class="actions">
+            <button class="primary" data-action="detail" data-id="${escapeHtml(hero.id)}" data-type="${escapeHtml(hero.type || 'movie')}">▶ Xem ngay</button>
+            <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(hero.id)}">＋ Tủ phim</button>
+            <button class="secondary ${state.screenLocked ? 'active' : ''}" id="screen-lock-btn" data-action="toggle-lock">${state.screenLocked ? '🔒 Khóa xoay: BẬT' : '🔓 Khóa xoay: TẮT'}</button>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><h2>Phim mới cập nhật</h2><small>KKphim Server VN</small></div>
+        <div class="grid">${featured.map(card).join('')}</div>
+      </section>
+      <section>
+        <div class="section-head"><h2>Khám phá thêm</h2><small>Phim4K</small></div>
+        <div class="grid">${other.map(card).join('')}</div>
+      </section>
+      <section>
+        <div class="section-head"><h2>Phim bộ</h2><small>KKphim</small></div>
+        <div class="grid">${seriesList.slice(0, 10).map(card).join('')}</div>
+      </section>
+    `;
   } catch (e) {
     error(e);
   }
@@ -124,7 +179,7 @@ async function series(push = true) {
   setView('series', push);
   status('Đang tải phim bộ...');
   try {
-    const items = await catalog('series', 'nguonc-phim-bo');
+    const items = await catalog('series', 'kkphim-phim-bo');
     state.items.push(...items);
     app.innerHTML = `<div class="page"><h1 class="page-title">Phim bộ</h1><p class="page-subtitle">Chọn phim để xem danh sách tập và nguồn phát.</p>${items.length ? `<div class="grid">${items.map(card).join('')}</div>` : '<div class="empty">Chưa có phim bộ từ nguồn hiện tại.</div>'}</div>`;
   } catch (e) {
@@ -141,7 +196,19 @@ function library(push = true) {
 function search(push = true) {
   setView('search', push);
   const prevQuery = state.searchQuery || '';
-  app.innerHTML = `<div class="page"><h1 class="page-title">Tìm kiếm</h1><p class="page-subtitle">Tìm phim theo tên từ các nguồn đang hoạt động.</p><input class="search-input" id="search-box" placeholder="Nhập tên phim..." autocomplete="off" value="${escapeHtml(prevQuery)}"><div id="search-results"></div></div>`;
+  app.innerHTML = `
+    <div class="page">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h1 class="page-title">Tìm kiếm</h1>
+          <p class="page-subtitle">Tìm phim nhanh qua KKphim, Phim4K, NguonC.</p>
+        </div>
+        <button class="secondary" id="screen-lock-btn" data-action="toggle-lock" style="font-size:12px; padding:6px 10px;">${state.screenLocked ? '🔒 Khóa xoay' : '🔓 Tự do xoay'}</button>
+      </div>
+      <input class="search-input" id="search-box" placeholder="Nhập tên phim..." autocomplete="off" value="${escapeHtml(prevQuery)}">
+      <div id="search-results"></div>
+    </div>
+  `;
   const input = document.getElementById('search-box');
   const output = document.getElementById('search-results');
 
@@ -167,23 +234,39 @@ async function runSearch(query) {
     output.replaceChildren();
     return;
   }
-  output.innerHTML = '<div class="loading">Đang tìm...</div>';
-  const configs = [['movie', 'phim4k-phim-le'], ['movie', 'nguonc-phim-le'], ['series', 'nguonc-phim-bo']];
+  output.innerHTML = '<div class="loading">Đang tìm kiếm trên các nguồn phim nhanh...</div>';
+  
+  // Tìm kiếm song song: KKphim (cực nhanh), Phim4K và NguonC
+  const configs = [
+    ['movie', 'kkphim-phim-le'],
+    ['series', 'kkphim-phim-bo'],
+    ['movie', 'phim4k-phim-le'],
+    ['movie', 'nguonc-phim-le']
+  ];
+  
   try {
-    const items = (await Promise.all(configs.map(async ([type, id]) => {
+    const results = await Promise.all(configs.map(async ([type, id]) => {
       try {
         return (await api(`/catalog/${type}/${id}/search=${encodeURIComponent(query)}.json`)).metas || [];
       } catch {
         return [];
       }
-    }))).flat();
+    }));
 
     if (document.getElementById('search-box')?.value.trim() !== query) return;
+    
+    // Gộp và lọc trùng lặp phim theo slug/tên
+    const map = new Map();
+    results.flat().forEach(item => {
+      if (!map.has(item.id)) map.set(item.id, item);
+    });
+    const items = Array.from(map.values());
+
     state.searchResults = items;
     state.items.push(...items);
-    output.innerHTML = items.length ? `<div class="grid">${items.map(card).join('')}</div>` : '<div class="empty">Không tìm thấy phim phù hợp.</div>';
+    output.innerHTML = items.length ? `<div class="grid">${items.map(card).join('')}</div>` : '<div class="empty">Không tìm thấy phim phù hợp. Hãy thử tên khác.</div>';
   } catch {
-    output.innerHTML = '<div class="empty">Lỗi khi tìm kiếm, vui lòng thử lại.</div>';
+    output.innerHTML = '<div class="empty">Lỗi kết nối khi tìm kiếm. Vui lòng thử lại.</div>';
   }
 }
 
@@ -195,7 +278,33 @@ async function detail(type, id, push = true) {
     state.current = m;
     state.lastDetail = { type, id };
     const inLibrary = saved().some(x => x.id === m.id);
-    app.innerHTML = `<div class="page"><button class="back" data-action="back">← Quay lại</button><div class="detail"><img class="detail-poster" src="${escapeHtml(m.poster || m.background)}" alt=""><div><div class="eyebrow">${type === 'series' ? 'Phim bộ' : 'Phim lẻ'}</div><h1>${escapeHtml(m.name)}</h1><div class="meta-line">${escapeHtml(m.releaseInfo || m.year || '')} ${m.runtime ? `· ${escapeHtml(m.runtime)}` : ''}</div><p class="description">${escapeHtml(m.description || 'Chưa có mô tả.')}</p><div class="actions"><button class="primary" data-action="streams" data-id="${escapeHtml(m.id)}">▶ Xem phim</button><button class="secondary" data-action="library-toggle" data-id="${escapeHtml(m.id)}">${inLibrary ? '✓ Đã lưu' : '＋ Lưu vào tủ phim'}</button></div></div></div>${m.videos?.length ? `<div class="section-head"><h2>Danh sách tập</h2><small>${m.videos.length} tập</small></div><div class="episode-list">${m.videos.map((v, i) => `<button class="row-button" data-action="streams" data-id="${escapeHtml(v.id)}"><span>${escapeHtml(v.title || `Tập ${i + 1}`)}</span><span>▶</span></button>`).join('')}</div>` : ''}</div>`;
+    app.innerHTML = `
+      <div class="page">
+        <button class="back" data-action="back" style="font-size:16px; font-weight:700; cursor:pointer;">← Quay lại</button>
+        <div class="detail">
+          <img class="detail-poster" src="${escapeHtml(m.poster || m.background)}" alt="">
+          <div>
+            <div class="eyebrow">${type === 'series' ? 'Phim bộ' : 'Phim lẻ'}</div>
+            <h1>${escapeHtml(m.name)}</h1>
+            <div class="meta-line">${escapeHtml(m.releaseInfo || m.year || '')} ${m.runtime ? `· ${escapeHtml(m.runtime)}` : ''}</div>
+            <p class="description">${escapeHtml(m.description || 'Chưa có mô tả.')}</p>
+            <div class="actions">
+              <button class="primary" data-action="streams" data-id="${escapeHtml(m.id)}">▶ Xem phim</button>
+              <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(m.id)}">${inLibrary ? '✓ Đã lưu' : '＋ Lưu vào tủ phim'}</button>
+            </div>
+          </div>
+        </div>
+        ${m.videos?.length ? `
+          <div class="section-head"><h2>Danh sách tập</h2><small>${m.videos.length} tập</small></div>
+          <div class="episode-list">${m.videos.map((v, i) => `
+            <button class="row-button" data-action="streams" data-id="${escapeHtml(v.id)}">
+              <span>${escapeHtml(v.title || `Tập ${i + 1}`)}</span>
+              <span>▶</span>
+            </button>
+          `).join('')}</div>
+        ` : ''}
+      </div>
+    `;
   } catch (e) {
     error(e);
   }
@@ -205,11 +314,28 @@ async function streams(id, push = true) {
   const m = state.current;
   if (!m) return;
   setView('streams', push);
-  status('Đang lấy nguồn phát...');
+  status('Đang lấy các nguồn phát tốc độ cao...');
   try {
     const { streams: list } = await api(`/stream/${m.type || 'movie'}/${encodeURIComponent(id)}.json`);
     state.streams = list || [];
-    app.innerHTML = `<div class="page"><button class="back" data-action="detail-back">← Chi tiết phim</button><h1 class="page-title">${escapeHtml(m.name)}</h1><p class="page-subtitle">Chọn nguồn phát</p>${list?.length ? `<div class="source-list">${list.map((s, i) => `<button class="row-button" data-action="play" data-index="${i}"><span>${escapeHtml(s.name || s.title || `Nguồn ${i + 1}`)}</span><span>▶</span></button>`).join('')}</div>` : '<div class="empty">Phim này chưa có nguồn phát. Hãy thử phim khác.</div>'}</div>`;
+    app.innerHTML = `
+      <div class="page">
+        <button class="back" data-action="detail-back" style="font-size:16px; font-weight:700; cursor:pointer;">← Chi tiết phim</button>
+        <h1 class="page-title">${escapeHtml(m.name)}</h1>
+        <p class="page-subtitle">Chọn nguồn phát mượt nhất bên dưới:</p>
+        ${list?.length ? `
+          <div class="source-list">${list.map((s, i) => `
+            <button class="row-button" data-action="play" data-index="${i}">
+              <div>
+                <strong>${escapeHtml(s.name || `Nguồn ${i + 1}`)}</strong>
+                <div style="font-size:12px; color:#9da4af; margin-top:2px;">${escapeHtml(s.title || '')}</div>
+              </div>
+              <span style="color:#e50914; font-size:18px;">▶</span>
+            </button>
+          `).join('')}</div>
+        ` : '<div class="empty">Phim này chưa có nguồn phát phù hợp. Hãy thử phim khác.</div>'}
+      </div>
+    `;
   } catch (e) {
     error(e);
   }
@@ -221,7 +347,18 @@ function play(index, push = true) {
   setView('player', push);
   state.hls?.destroy();
   state.hls = null;
-  app.innerHTML = `<div class="page"><button class="back" data-action="streams-back">← Chọn nguồn khác</button><h1 class="page-title">${escapeHtml(state.current?.name)}</h1><p class="page-subtitle">${escapeHtml(source.name || source.title)}</p><div class="player-wrap" id="player-wrap"></div><p class="notice" id="player-status" hidden></p></div>`;
+  app.innerHTML = `
+    <div class="page">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <button class="back" data-action="streams-back" style="font-size:16px; font-weight:700; cursor:pointer; margin-bottom:0;">← Chọn nguồn khác</button>
+        <button class="secondary" id="screen-lock-btn" data-action="toggle-lock" style="font-size:12px; padding:6px 12px;">${state.screenLocked ? '🔒 Đang khóa dọc' : '🔓 Cho phép xoay ngang'}</button>
+      </div>
+      <h1 class="page-title">${escapeHtml(state.current?.name)}</h1>
+      <p class="page-subtitle">${escapeHtml(source.name || source.title)}</p>
+      <div class="player-wrap" id="player-wrap"></div>
+      <p class="notice" id="player-status" hidden></p>
+    </div>
+  `;
   const wrap = document.getElementById('player-wrap');
   const statusEl = document.getElementById('player-status');
 
@@ -252,16 +389,17 @@ function play(index, push = true) {
 
   const attach = () => {
     if (window.Hls?.isSupported()) {
-      // Cấu hình Hls.js buffer tối đa & giải mã mượt mà chống giật lag
+      // Tối ưu bộ nhớ đệm Buffer cho mạng Việt Nam (tải trước nhanh và ổn định)
       const h = new Hls({
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferLength: 45,
+        maxMaxBufferLength: 90,
+        maxBufferSize: 80 * 1000 * 1000,
         enableWorker: true,
         lowLatencyMode: false,
         backBufferLength: 30,
         fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 15000
+        manifestLoadingTimeOut: 15000,
+        startLevel: -1 // Tự động chọn chất lượng mạng phù hợp nhất lúc bắt đầu
       });
       state.hls = h;
       h.loadSource(source.url);
@@ -325,6 +463,7 @@ document.addEventListener('click', event => {
   else if (action === 'streams') streams(id);
   else if (action === 'play') play(Number(index));
   else if (action === 'library-toggle') toggleLibrary(id);
+  else if (action === 'toggle-lock') toggleScreenLock();
   else if (action === 'detail-back') {
     if (state.lastDetail) detail(state.lastDetail.type, state.lastDetail.id, false);
     else goBack();
