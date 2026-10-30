@@ -22,97 +22,165 @@ public class MainActivity extends Activity {
   private View fullscreenView;
   private WebChromeClient.CustomViewCallback fullscreenCallback;
   private int retryCount;
-  private boolean appFullscreen;
+  private boolean isPlayerMode = false;
 
   public final class PlayerBridge {
-    @JavascriptInterface public void enterFullscreen() {
+    // JavaScript gọi khi xem video -> cho phép tự do xoay ngang/dọc xem phim
+    @JavascriptInterface
+    public void enterPlayerMode() {
       runOnUiThread(() -> {
-        appFullscreen = true;
+        isPlayerMode = true;
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
       });
     }
-    @JavascriptInterface public void exitFullscreen() {
-      runOnUiThread(() -> exitAppFullscreen());
+
+    // JavaScript gọi khi ở trang chủ, tìm kiếm, tủ phim -> khóa xoay cố định màn hình dọc
+    @JavascriptInterface
+    public void enterPortraitMode() {
+      runOnUiThread(() -> {
+        isPlayerMode = false;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+      });
+    }
+
+    @JavascriptInterface
+    public void enterFullscreen() {
+      runOnUiThread(() -> {
+        isPlayerMode = true;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        getWindow().getDecorView().setSystemUiVisibility(
+          View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        );
+      });
+    }
+
+    @JavascriptInterface
+    public void exitFullscreen() {
+      runOnUiThread(() -> exitCustomFullscreen());
     }
   }
 
-  @Override public void onCreate(Bundle state) {
+  @Override
+  public void onCreate(Bundle state) {
     super.onCreate(state);
+    // Mặc định khóa màn hình dọc khi mở ứng dụng
+    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+
     root = new FrameLayout(this);
     web = new WebView(this);
     WebSettings settings = web.getSettings();
     settings.setJavaScriptEnabled(true);
     settings.setDomStorageEnabled(true);
-    settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+    settings.setCacheMode(WebSettings.LOAD_DEFAULT);
     settings.setMediaPlaybackRequiresUserGesture(false);
-    settings.setSupportZoom(true);
-    settings.setBuiltInZoomControls(true);
+    settings.setSupportZoom(false);
+    settings.setBuiltInZoomControls(false);
     settings.setDisplayZoomControls(false);
+
     web.addJavascriptInterface(new PlayerBridge(), "VietStreamAndroid");
     web.setWebViewClient(new WebViewClient() {
-      @Override public void onPageFinished(WebView view, String url) { retryCount = 0; }
-      @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+      @Override
+      public void onPageFinished(WebView view, String url) {
+        retryCount = 0;
+      }
+
+      @Override
+      public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
         if (!request.isForMainFrame()) return;
-        if (retryCount++ < 2) web.postDelayed(() -> web.loadUrl(APP_URL), 3000);
-        else new AlertDialog.Builder(MainActivity.this)
-          .setTitle("Không kết nối được VietStream")
-          .setMessage("Kiểm tra mạng rồi thử lại.")
-          .setPositiveButton("Thử lại", (dialog, which) -> { retryCount = 0; web.loadUrl(APP_URL); })
-          .show();
+        if (retryCount++ < 2) {
+          web.postDelayed(() -> web.loadUrl(APP_URL), 3000);
+        } else {
+          new AlertDialog.Builder(MainActivity.this)
+            .setTitle("Không kết nối được VietStream")
+            .setMessage("Kiểm tra mạng rồi thử lại.")
+            .setPositiveButton("Thử lại", (dialog, which) -> {
+              retryCount = 0;
+              web.loadUrl(APP_URL);
+            })
+            .show();
+        }
       }
     });
+
     web.setWebChromeClient(new WebChromeClient() {
-      @Override public void onShowCustomView(View view, CustomViewCallback callback) {
-        if (fullscreenView != null) { callback.onCustomViewHidden(); return; }
+      @Override
+      public void onShowCustomView(View view, CustomViewCallback callback) {
+        if (fullscreenView != null) {
+          callback.onCustomViewHidden();
+          return;
+        }
         fullscreenView = view;
         fullscreenCallback = callback;
         root.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.setVisibility(View.GONE);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        // Khi video bật Fullscreen: cho phép xoay cảm biến tự động
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        getWindow().getDecorView().setSystemUiVisibility(
+          View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        );
       }
-      @Override public void onHideCustomView() { exitFullscreen(); }
+
+      @Override
+      public void onHideCustomView() {
+        exitCustomFullscreen();
+      }
     });
+
     root.addView(web);
     setContentView(root);
-    if (state == null || web.restoreState(state) == null) web.loadUrl(APP_URL);
+
+    if (state == null || web.restoreState(state) == null) {
+      web.loadUrl(APP_URL);
+    }
   }
 
-  @Override public void onConfigurationChanged(Configuration configuration) {
+  @Override
+  public void onConfigurationChanged(Configuration configuration) {
     super.onConfigurationChanged(configuration);
-    // Keep the same WebView and video when the phone rotates in fullscreen.
   }
 
-  @Override protected void onSaveInstanceState(Bundle state) {
+  @Override
+  protected void onSaveInstanceState(Bundle state) {
     web.saveState(state);
     super.onSaveInstanceState(state);
   }
 
-  private void exitFullscreen() {
+  private void exitCustomFullscreen() {
     if (fullscreenView == null) return;
     root.removeView(fullscreenView);
     fullscreenView = null;
     web.setVisibility(View.VISIBLE);
-    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    if (!isPlayerMode) {
+      setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+    } else {
+      setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+    }
     getWindow().getDecorView().setSystemUiVisibility(0);
-    if (fullscreenCallback != null) fullscreenCallback.onCustomViewHidden();
-    fullscreenCallback = null;
+    if (fullscreenCallback != null) {
+      fullscreenCallback.onCustomViewHidden();
+      fullscreenCallback = null;
+    }
   }
 
-  private void exitAppFullscreen() {
-    if (!appFullscreen) return;
-    appFullscreen = false;
-    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-    getWindow().getDecorView().setSystemUiVisibility(0);
-    web.evaluateJavascript("document.body.classList.remove('player-fullscreen')", null);
-  }
+  @Override
+  public void onBackPressed() {
+    if (fullscreenView != null) {
+      exitCustomFullscreen();
+      return;
+    }
 
-  @Override public void onBackPressed() {
-    if (fullscreenView != null) exitFullscreen();
-    else if (appFullscreen) exitAppFullscreen();
-    else if (web.canGoBack()) web.goBack();
-    else super.onBackPressed();
+    // Gửi tín hiệu lùi trang cho Web trước (giữ lại tìm kiếm/chi tiết)
+    web.evaluateJavascript(
+      "(function(){ return window.handleAndroidBack ? window.handleAndroidBack() : false; })()",
+      result -> {
+        if (!"true".equals(result)) {
+          if (web.canGoBack()) {
+            web.goBack();
+          } else {
+            super.onBackPressed();
+          }
+        }
+      }
+    );
   }
 }
-

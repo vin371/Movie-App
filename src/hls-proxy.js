@@ -77,7 +77,15 @@ router.get('/hls/manifest.m3u8', async (req, res) => {
   const origin = b64d(req.query.origin);
   if (!/^https?:/i.test(target)) return res.status(400).send('bad url');
   try {
-    const up = await fetch(target, { headers: upstreamHeaders(ref, origin, req.headers.range), redirect: 'follow' });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const up = await fetch(target, {
+      headers: upstreamHeaders(ref, origin, req.headers.range),
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
     const ct = up.headers.get('content-type') || '';
     const text = await up.text();
     if (!text.trim().startsWith('#EXTM3U')) {
@@ -87,10 +95,10 @@ router.get('/hls/manifest.m3u8', async (req, res) => {
       return res.send(text);
     }
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
-    res.set('Cache-Control', 'no-cache');
+    res.set('Cache-Control', 'public, max-age=5');
     res.send(rewriteM3u8(text, up.url || target, ref, origin, base));
-  } catch {
-    res.status(502).send('upstream error');
+  } catch (err) {
+    res.status(502).send('upstream error: ' + (err.name === 'AbortError' ? 'timeout' : 'failed'));
   }
 });
 
@@ -101,12 +109,21 @@ router.get('/hls/seg', async (req, res) => {
   const origin = b64d(req.query.origin);
   if (!/^https?:/i.test(target)) return res.status(400).send('bad url');
   try {
-    const up = await fetch(target, { headers: upstreamHeaders(ref, origin, req.headers.range), redirect: 'follow' });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    const up = await fetch(target, {
+      headers: upstreamHeaders(ref, origin, req.headers.range),
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
     const ct = up.headers.get('content-type') || '';
     if (/mpegurl/i.test(ct) || /\.m3u8(\?|$)/i.test(target)) {
       // playlist biến thể lọt vào seg -> rewrite luôn
       const text = await up.text();
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
+      res.set('Cache-Control', 'public, max-age=5');
       return res.send(rewriteM3u8(text, up.url || target, ref, origin, base));
     }
     res.status(up.status);
@@ -114,11 +131,12 @@ router.get('/hls/seg', async (req, res) => {
       const v = up.headers.get(h);
       if (v) res.set(h, v);
     }
-    res.set('Cache-Control', 'no-cache');
+    // Cho phép cache segment cục bộ và trình duyệt giúp phát mượt mà không bị khựng
+    res.set('Cache-Control', 'public, max-age=86400, immutable');
     if (!up.body) return res.end();
     Readable.fromWeb(up.body).pipe(res);
-  } catch {
-    res.status(502).end('upstream error');
+  } catch (err) {
+    res.status(502).end('upstream error: ' + (err.name === 'AbortError' ? 'timeout' : 'failed'));
   }
 });
 
