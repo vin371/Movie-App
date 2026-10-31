@@ -275,7 +275,9 @@ public class MainActivity extends Activity {
       lockButton.setText("🔒\nKhóa");
       lockButton.setAlpha(1.0f);
     }
-    scheduleHideControls();
+    if (hideControlsRunnable != null) lockButton.removeCallbacks(hideControlsRunnable);
+    lockButton.setVisibility(View.GONE);
+    if (rotateButton != null) rotateButton.setVisibility(View.GONE);
   }
 
   private void scheduleHideControls() {
