@@ -13,8 +13,9 @@ const state = {
   searchQuery: '',
   searchResults: [],
   history: [],
+  wakeLock: null,
   isLocked: false,
-  wakeLock: null
+  lockTimer: null
 };
 
 const saved = () => { try { return JSON.parse(localStorage.getItem('vietstream-library') || '[]'); } catch { return []; } };
@@ -22,7 +23,7 @@ const save = items => localStorage.setItem('vietstream-library', JSON.stringify(
 const status = (message) => { app.innerHTML = `<div class="loading">${escapeHtml(message)}</div>`; };
 const error = (e) => { app.innerHTML = `<div class="page"><h1 class="page-title">Không tải được nội dung</h1><p class="notice">${escapeHtml(e.message)}</p><button class="primary" data-action="home">Thử lại</button></div>`; };
 
-// 1. Chống tắt màn hình khi đang phát video (Screen WakeLock API & Native Bridge)
+// 1. Chống tắt màn hình khi đang phát video
 async function requestWakeLock() {
   try {
     if ('wakeLock' in navigator) {
@@ -46,35 +47,6 @@ function releaseWakeLock() {
   }
 }
 
-// 2. Khóa góc xoay trực tiếp bên trong video player
-function toggleVideoOrientationLock() {
-  state.isLocked = !state.isLocked;
-
-  // Gọi Native Android
-  if (window.VietStreamAndroid?.toggleLockCurrentOrientation) {
-    window.VietStreamAndroid.toggleLockCurrentOrientation();
-  }
-
-  // Khóa Web Screen Orientation API (cho trình duyệt)
-  if (screen.orientation) {
-    if (state.isLocked && screen.orientation.lock) {
-      const currentType = screen.orientation.type?.includes('landscape') ? 'landscape' : 'portrait';
-      screen.orientation.lock(currentType).catch(() => {});
-    } else if (screen.orientation.unlock) {
-      screen.orientation.unlock();
-    }
-  }
-
-  // Cập nhật giao diện nút khóa bên trong player
-  const btn = document.getElementById('video-screen-lock');
-  if (btn) {
-    btn.classList.toggle('locked', state.isLocked);
-    btn.innerHTML = state.isLocked 
-      ? '🔒 Đã khóa màn hình' 
-      : '🔓 Khóa xoay';
-  }
-}
-
 function setView(view, push = true) {
   if (push && state.view && state.view !== view) {
     state.history.push({ 
@@ -90,12 +62,8 @@ function setView(view, push = true) {
 
   if (view === 'player') {
     requestWakeLock();
-    state.isLocked = false;
-    window.VietStreamAndroid?.enterPlayerMode?.();
   } else {
     releaseWakeLock();
-    state.isLocked = false;
-    window.VietStreamAndroid?.enterPortraitMode?.();
   }
 }
 
@@ -175,7 +143,7 @@ async function home(push = true) {
         <div class="hero-content">
           <div class="eyebrow">Phim nổi bật · ${escapeHtml(hero.releaseInfo || hero.year)}</div>
           <h1>${escapeHtml(hero.name)}</h1>
-          <p>Phim mượt mà không quảng cáo. Luôn giữ sáng màn hình khi xem phim.</p>
+          <p>Phim mượt mà không quảng cáo. Bấm nút toàn màn hình tích hợp trong video để trải nghiệm xem phim hoàn hảo nhất.</p>
           <div class="actions">
             <button class="primary" data-action="detail" data-id="${escapeHtml(hero.id)}" data-type="${escapeHtml(hero.type || 'movie')}">▶ Xem ngay</button>
             <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(hero.id)}">＋ Tủ phim</button>
@@ -370,9 +338,11 @@ function play(index, push = true) {
       <h1 class="page-title">${escapeHtml(state.current?.name)}</h1>
       <p class="page-subtitle">${escapeHtml(source.name || source.title)}</p>
       
-      <!-- Video Player bọc nút khóa màn hình trực tiếp ở góc trên khung hình -->
       <div class="player-wrap" id="player-wrap">
-        <button class="video-lock-btn" id="video-screen-lock" data-action="video-lock" title="Khóa cố định màn hình không bị xoay">
+        <!-- Chặn chạm nhầm khi đang khóa ở Web Fullscreen -->
+        <div class="touch-blocker-overlay" id="touch-blocker"></div>
+        <!-- Nút khóa màn hình bán trong suốt tự mờ đi cùng các điều khiển khi ở toàn màn hình -->
+        <button class="fullscreen-lock-btn" id="fs-lock-btn" data-action="fullscreen-lock" aria-label="Khóa màn hình">
           🔓 Khóa xoay
         </button>
       </div>
@@ -381,6 +351,20 @@ function play(index, push = true) {
   `;
   const wrap = document.getElementById('player-wrap');
   const statusEl = document.getElementById('player-status');
+  const lockBtn = document.getElementById('fs-lock-btn');
+  const blocker = document.getElementById('touch-blocker');
+
+  // Xử lý chạm vào video để hiện nút khóa rồi tự mờ đi sau 3 giây
+  const showControlsTemporarily = () => {
+    wrap.classList.add('show-lock');
+    clearTimeout(state.lockTimer);
+    state.lockTimer = setTimeout(() => {
+      wrap.classList.remove('show-lock');
+    }, 3200);
+  };
+
+  wrap.addEventListener('click', showControlsTemporarily);
+  wrap.addEventListener('touchstart', showControlsTemporarily, { passive: true });
 
   if (source.externalUrl) {
     const frame = document.createElement('iframe');
@@ -455,6 +439,31 @@ function play(index, push = true) {
   }
 }
 
+function toggleFullscreenLock() {
+  state.isLocked = !state.isLocked;
+  const lockBtn = document.getElementById('fs-lock-btn');
+  const blocker = document.getElementById('touch-blocker');
+
+  // Thông báo khóa hướng tới Android
+  if (window.VietStreamAndroid?.lockOrientation) {
+    window.VietStreamAndroid.lockOrientation(state.isLocked);
+  }
+
+  if (state.isLocked) {
+    if (lockBtn) {
+      lockBtn.classList.add('locked');
+      lockBtn.innerHTML = '🔒 Đã khóa (Chạm mở)';
+    }
+    if (blocker) blocker.classList.add('active');
+  } else {
+    if (lockBtn) {
+      lockBtn.classList.remove('locked');
+      lockBtn.innerHTML = '🔓 Khóa xoay';
+    }
+    if (blocker) blocker.classList.remove('active');
+  }
+}
+
 function toggleLibrary(id) {
   const item = state.current?.id === id ? state.current : state.items.find(x => x.id === id);
   if (!item) return;
@@ -482,7 +491,7 @@ document.addEventListener('click', event => {
   else if (action === 'streams') streams(id);
   else if (action === 'play') play(Number(index));
   else if (action === 'library-toggle') toggleLibrary(id);
-  else if (action === 'video-lock') toggleVideoOrientationLock();
+  else if (action === 'fullscreen-lock') toggleFullscreenLock();
   else if (action === 'detail-back') {
     if (state.lastDetail) detail(state.lastDetail.type, state.lastDetail.id, false);
     else goBack();
