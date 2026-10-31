@@ -339,11 +339,12 @@ function play(index, push = true) {
       <p class="page-subtitle">${escapeHtml(source.name || source.title)}</p>
       
       <div class="player-wrap" id="player-wrap">
-        <!-- Chặn chạm nhầm khi đang khóa ở Web Fullscreen -->
+        <!-- Chặn chạm nhầm khi đang khóa -->
         <div class="touch-blocker-overlay" id="touch-blocker"></div>
-        <!-- Nút khóa màn hình bán trong suốt tự mờ đi cùng các điều khiển khi ở toàn màn hình -->
-        <button class="fullscreen-lock-btn" id="fs-lock-btn" data-action="fullscreen-lock" aria-label="Khóa màn hình">
-          🔓 Khóa xoay
+        <!-- Nút Khóa màn hình riêng với biểu tượng 🔒 trong lớp điều khiển phủ lên video -->
+        <button class="web-overlay-lock-btn" id="web-overlay-lock" data-action="overlay-lock" aria-label="Khóa màn hình">
+          <div>🔒</div>
+          <span>Khóa</span>
         </button>
       </div>
       <p class="notice" id="player-status" hidden></p>
@@ -351,16 +352,16 @@ function play(index, push = true) {
   `;
   const wrap = document.getElementById('player-wrap');
   const statusEl = document.getElementById('player-status');
-  const lockBtn = document.getElementById('fs-lock-btn');
+  const lockBtn = document.getElementById('web-overlay-lock');
   const blocker = document.getElementById('touch-blocker');
 
-  // Xử lý chạm vào video để hiện nút khóa rồi tự mờ đi sau 3 giây
+  // Xử lý chạm vào video để hiện nút khóa và tự mờ đi sau 3.5 giây
   const showControlsTemporarily = () => {
     wrap.classList.add('show-lock');
     clearTimeout(state.lockTimer);
     state.lockTimer = setTimeout(() => {
       wrap.classList.remove('show-lock');
-    }, 3200);
+    }, 3500);
   };
 
   wrap.addEventListener('click', showControlsTemporarily);
@@ -439,12 +440,12 @@ function play(index, push = true) {
   }
 }
 
-function toggleFullscreenLock() {
+function toggleOverlayLock() {
   state.isLocked = !state.isLocked;
-  const lockBtn = document.getElementById('fs-lock-btn');
+  const lockBtn = document.getElementById('web-overlay-lock');
   const blocker = document.getElementById('touch-blocker');
 
-  // Thông báo khóa hướng tới Android
+  // Thông báo tới Native Android nếu đang chạy WebView
   if (window.VietStreamAndroid?.lockOrientation) {
     window.VietStreamAndroid.lockOrientation(state.isLocked);
   }
@@ -452,13 +453,13 @@ function toggleFullscreenLock() {
   if (state.isLocked) {
     if (lockBtn) {
       lockBtn.classList.add('locked');
-      lockBtn.innerHTML = '🔒 Đã khóa (Chạm mở)';
+      lockBtn.innerHTML = '<div>🔒</div><span>Đang khóa</span>';
     }
     if (blocker) blocker.classList.add('active');
   } else {
     if (lockBtn) {
       lockBtn.classList.remove('locked');
-      lockBtn.innerHTML = '🔓 Khóa xoay';
+      lockBtn.innerHTML = '<div>🔒</div><span>Khóa</span>';
     }
     if (blocker) blocker.classList.remove('active');
   }
@@ -491,7 +492,7 @@ document.addEventListener('click', event => {
   else if (action === 'streams') streams(id);
   else if (action === 'play') play(Number(index));
   else if (action === 'library-toggle') toggleLibrary(id);
-  else if (action === 'fullscreen-lock') toggleFullscreenLock();
+  else if (action === 'overlay-lock') toggleOverlayLock();
   else if (action === 'detail-back') {
     if (state.lastDetail) detail(state.lastDetail.type, state.lastDetail.id, false);
     else goBack();

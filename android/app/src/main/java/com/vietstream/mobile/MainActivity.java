@@ -4,7 +4,10 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -26,11 +29,12 @@ public class MainActivity extends Activity {
   private View customView;
   private WebChromeClient.CustomViewCallback customCallback;
 
-  // View nút khóa màn hình bán trong suốt trên CustomView (Toàn màn hình native)
-  private TextView lockOverlayButton;
+  // Lớp điều khiển phủ lên video (Overlay)
+  private FrameLayout overlayLayout;
+  private TextView lockButton;
   private View touchBlocker;
   private boolean isLocked = false;
-  private Runnable hideLockRunnable;
+  private Runnable hideControlsRunnable;
 
   private int retryCount;
 
@@ -40,19 +44,6 @@ public class MainActivity extends Activity {
       runOnUiThread(() -> {
         if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-      });
-    }
-
-    // Khóa màn hình khi ở chế độ Web Fullscreen (nếu không kích hoạt WebChromeClient)
-    @JavascriptInterface
-    public void lockOrientation(boolean lock) {
-      runOnUiThread(() -> {
-        isLocked = lock;
-        if (lock) {
-          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
-        } else {
-          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-        }
       });
     }
 
@@ -76,7 +67,7 @@ public class MainActivity extends Activity {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
-    // Luôn giữ sáng màn hình khi mở ứng dụng xem phim
+    // Luôn giữ màn hình sáng khi xem phim
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     root = new FrameLayout(this);
@@ -117,7 +108,6 @@ public class MainActivity extends Activity {
     });
 
     web.setWebChromeClient(new WebChromeClient() {
-      // Khi người dùng bấm nút toàn màn hình [ ] tích hợp sẵn của Video Player
       @Override
       public void onShowCustomView(View view, CustomViewCallback callback) {
         if (customView != null) {
@@ -129,7 +119,7 @@ public class MainActivity extends Activity {
 
         // Container toàn màn hình
         fullscreenContainer = new FrameLayout(MainActivity.this);
-        fullscreenContainer.setBackgroundColor(0xFF000000);
+        fullscreenContainer.setBackgroundColor(Color.BLACK);
         fullscreenContainer.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // Lớp chặn chạm nhầm khi đang khóa (trong suốt)
@@ -137,21 +127,30 @@ public class MainActivity extends Activity {
         touchBlocker.setVisibility(View.GONE);
         fullscreenContainer.addView(touchBlocker, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Nút khóa màn hình bán trong suốt
-        lockOverlayButton = new TextView(MainActivity.this);
-        lockOverlayButton.setText("🔓 Khóa xoay");
-        lockOverlayButton.setTextColor(0xFFFFFFFF);
-        lockOverlayButton.setTextSize(13);
-        lockOverlayButton.setPadding(28, 14, 28, 14);
-        lockOverlayButton.setBackgroundColor(0x99171922);
+        // Lớp điều khiển phủ lên video (Overlay)
+        overlayLayout = new FrameLayout(MainActivity.this);
+        fullscreenContainer.addView(overlayLayout, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        FrameLayout.LayoutParams btnLp = new FrameLayout.LayoutParams(
-          ViewGroup.LayoutParams.WRAP_CONTENT,
-          ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        btnLp.gravity = Gravity.TOP | Gravity.RIGHT;
-        btnLp.setMargins(0, 36, 36, 0);
-        fullscreenContainer.addView(lockOverlayButton, btnLp);
+        // NÚT KHÓA MÀN HÌNH RIÊNG VỚI BIỂU TƯỢNG 🔒
+        // Nằm bên trái / giữa cạnh trái lớp điều khiển phủ lên video, kích thước lớn dễ bấm
+        lockButton = new TextView(MainActivity.this);
+        lockButton.setGravity(Gravity.CENTER);
+        lockButton.setText("🔒\nKhóa");
+        lockButton.setTextColor(Color.WHITE);
+        lockButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+
+        // Nền tối bán trong suốt bo tròn
+        GradientDrawable normalBg = new GradientDrawable();
+        normalBg.setColor(Color.parseColor("#99141721")); // Bán trong suốt 60%
+        normalBg.setCornerRadius(28f);
+        normalBg.setStroke(3, Color.parseColor("#44FFFFFF"));
+        lockButton.setBackground(normalBg);
+
+        int sizePx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 64, getResources().getDisplayMetrics());
+        FrameLayout.LayoutParams lockLp = new FrameLayout.LayoutParams(sizePx, sizePx);
+        lockLp.gravity = Gravity.CENTER_VERTICAL | Gravity.LEFT;
+        lockLp.leftMargin = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24, getResources().getDisplayMetrics());
+        overlayLayout.addView(lockButton, lockLp);
 
         // Ban đầu ở toàn màn hình: Cho phép xoay 4 hướng theo cảm biến (FULL_SENSOR)
         isLocked = false;
@@ -160,31 +159,15 @@ public class MainActivity extends Activity {
           View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
 
-        // Tự động mờ nút sau 3.5 giây
-        scheduleHideLock();
+        // Tự động mờ nút khóa sau 3.5 giây khi người dùng không chạm
+        scheduleHideControls();
 
-        // Xử lý chạm vào container để hiện nút khóa / mở khóa
-        fullscreenContainer.setOnClickListener(v -> toggleControlsVisibility());
-        touchBlocker.setOnClickListener(v -> toggleControlsVisibility());
+        // Chạm vào màn hình để hiện lại nút khóa
+        fullscreenContainer.setOnClickListener(v -> onScreenTouched());
+        touchBlocker.setOnClickListener(v -> onScreenTouched());
 
-        // Bấm nút khóa
-        lockOverlayButton.setOnClickListener(v -> {
-          isLocked = !isLocked;
-          if (isLocked) {
-            // KHÓA CỨNG: Cố định hướng màn hình hiện tại dù người dùng xoay 4 hướng hay nằm xuống
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
-            touchBlocker.setVisibility(View.VISIBLE);
-            lockOverlayButton.setText("🔒 Đã khóa (Chạm mở)");
-            lockOverlayButton.setBackgroundColor(0xCCB31217);
-          } else {
-            // MỞ KHÓA: Cho phép xoay cảm biến ở cả 4 hướng
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-            touchBlocker.setVisibility(View.GONE);
-            lockOverlayButton.setText("🔓 Khóa xoay");
-            lockOverlayButton.setBackgroundColor(0x99171922);
-          }
-          scheduleHideLock();
-        });
+        // Bấm nút Khóa / Mở khóa
+        lockButton.setOnClickListener(v -> toggleLockState());
 
         root.addView(fullscreenContainer, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.setVisibility(View.GONE);
@@ -204,33 +187,79 @@ public class MainActivity extends Activity {
     }
   }
 
-  private void scheduleHideLock() {
-    if (lockOverlayButton == null) return;
-    if (hideLockRunnable != null) lockOverlayButton.removeCallbacks(hideLockRunnable);
-    hideLockRunnable = () -> {
-      if (lockOverlayButton != null) {
+  private void onScreenTouched() {
+    if (lockButton == null) return;
+    if (isLocked) {
+      // Khi đang khóa: Chạm vào màn hình thì hiện rõ biểu tượng ổ khóa 100% để người dùng bấm mở
+      lockButton.setVisibility(View.VISIBLE);
+      lockButton.setAlpha(1.0f);
+      scheduleHideControls();
+    } else {
+      // Khi không khóa: Toggle ẩn/hiện nút khóa theo các điều khiển video
+      if (lockButton.getVisibility() == View.VISIBLE && lockButton.getAlpha() == 1.0f) {
+        lockButton.setVisibility(View.GONE);
+      } else {
+        lockButton.setVisibility(View.VISIBLE);
+        lockButton.setAlpha(1.0f);
+        scheduleHideControls();
+      }
+    }
+  }
+
+  private void toggleLockState() {
+    if (lockButton == null) return;
+    isLocked = !isLocked;
+    if (isLocked) {
+      // 1. CỐ ĐỊNH HƯỚNG MÀN HÌNH HIỆN TẠI (Dù xoay điện thoại theo hướng nào)
+      setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+
+      // 2. Chặn chạm nhầm vào các điều khiển phát phim
+      touchBlocker.setVisibility(View.VISIBLE);
+
+      // 3. Đổi giao diện nút sang trạng thái đang khóa
+      GradientDrawable lockedBg = new GradientDrawable();
+      lockedBg.setColor(Color.parseColor("#D9E50914")); // Đỏ nổi bật bán trong suốt
+      lockedBg.setCornerRadius(28f);
+      lockedBg.setStroke(3, Color.parseColor("#FFFF6B72"));
+      lockButton.setBackground(lockedBg);
+      lockButton.setText("🔒\nĐang khóa");
+      lockButton.setAlpha(1.0f);
+    } else {
+      // 1. MỞ KHÓA: Cho phép xoay theo cảm biến ở CẢ BỐN HƯỚNG (FULL_SENSOR)
+      setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+
+      // 2. Khôi phục các điều khiển phát phim
+      touchBlocker.setVisibility(View.GONE);
+
+      // 3. Đổi giao diện nút sang trạng thái sẵn sàng khóa
+      GradientDrawable normalBg = new GradientDrawable();
+      normalBg.setColor(Color.parseColor("#99141721"));
+      normalBg.setCornerRadius(28f);
+      normalBg.setStroke(3, Color.parseColor("#44FFFFFF"));
+      lockButton.setBackground(normalBg);
+      lockButton.setText("🔒\nKhóa");
+      lockButton.setAlpha(1.0f);
+    }
+    scheduleHideControls();
+  }
+
+  private void scheduleHideControls() {
+    if (lockButton == null) return;
+    if (hideControlsRunnable != null) lockButton.removeCallbacks(hideControlsRunnable);
+    hideControlsRunnable = () -> {
+      if (lockButton != null) {
         if (isLocked) {
-          // Khi đang khóa, hiển thị biểu tượng ổ khóa mờ nhỏ gọn để người dùng chạm mở
-          lockOverlayButton.setText("🔒");
-          lockOverlayButton.setAlpha(0.45f);
+          // KHI ĐANG KHÓA: Giữ biểu tượng ổ khóa hiện rõ trên video (bán trong suốt mờ nhẹ) để người dùng chạm mở bất cứ lúc nào
+          lockButton.setVisibility(View.VISIBLE);
+          lockButton.setAlpha(0.6f);
+          lockButton.setText("🔒");
         } else {
-          lockOverlayButton.setVisibility(View.GONE);
+          // KHI KHÔNG KHÓA: Tự mờ đi cùng các điều khiển video
+          lockButton.setVisibility(View.GONE);
         }
       }
     };
-    lockOverlayButton.postDelayed(hideLockRunnable, 3500);
-  }
-
-  private void toggleControlsVisibility() {
-    if (lockOverlayButton == null) return;
-    if (lockOverlayButton.getVisibility() == View.VISIBLE && lockOverlayButton.getAlpha() == 1.0f) {
-      lockOverlayButton.setVisibility(View.GONE);
-    } else {
-      lockOverlayButton.setVisibility(View.VISIBLE);
-      lockOverlayButton.setAlpha(1.0f);
-      lockOverlayButton.setText(isLocked ? "🔒 Đang khóa (Chạm mở)" : "🔓 Khóa xoay");
-      scheduleHideLock();
-    }
+    lockButton.postDelayed(hideControlsRunnable, 3500);
   }
 
   private void exitFullscreenMode() {
@@ -242,7 +271,6 @@ public class MainActivity extends Activity {
     }
     customView = null;
     web.setVisibility(View.VISIBLE);
-    // Khi thoát toàn màn hình, trở lại không giới hạn hoặc dọc theo web app
     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     getWindow().getDecorView().setSystemUiVisibility(0);
     if (customCallback != null) {
@@ -268,21 +296,13 @@ public class MainActivity extends Activity {
     if (customView != null || fullscreenContainer != null) {
       if (isLocked) {
         // Nếu đang khóa thì mở khóa trước
-        isLocked = false;
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-        if (touchBlocker != null) touchBlocker.setVisibility(View.GONE);
-        if (lockOverlayButton != null) {
-          lockOverlayButton.setText("🔓 Khóa xoay");
-          lockOverlayButton.setVisibility(View.VISIBLE);
-          lockOverlayButton.setAlpha(1.0f);
-        }
+        toggleLockState();
         return;
       }
       exitFullscreenMode();
       return;
     }
 
-    // Gửi tín hiệu lùi trang cho Web trước (giữ lại tìm kiếm/chi tiết)
     web.evaluateJavascript(
       "(function(){ return window.handleAndroidBack ? window.handleAndroidBack() : false; })()",
       result -> {
