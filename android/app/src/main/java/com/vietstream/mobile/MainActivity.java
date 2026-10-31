@@ -23,11 +23,10 @@ public class MainActivity extends Activity {
   private View fullscreenView;
   private WebChromeClient.CustomViewCallback fullscreenCallback;
   private int retryCount;
-  private boolean isPlayerMode = false;
-  private int currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+  private boolean isOrientationLocked = false;
+  private int lockedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
 
   public final class PlayerBridge {
-    // Luôn giữ màn hình sáng khi xem phim, không bị tự tắt màn hình
     @JavascriptInterface
     public void keepScreenOn(boolean keepOn) {
       runOnUiThread(() -> {
@@ -39,49 +38,46 @@ public class MainActivity extends Activity {
       });
     }
 
-    // Khóa hướng màn hình theo ý muốn: "portrait" (đứng), "landscape" (ngang), "sensor" (tự xoay), "current" (khóa hướng hiện tại)
+    // Toggle khóa cứng góc máy hiện tại: khi người dùng nằm xuống hay xoay ngang/dọc, giữ cố định hướng đó
     @JavascriptInterface
-    public void setOrientation(String mode) {
+    public boolean toggleLockCurrentOrientation() {
+      final boolean[] result = new boolean[1];
       runOnUiThread(() -> {
-        if ("landscape".equalsIgnoreCase(mode)) {
-          currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
-          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-        } else if ("portrait".equalsIgnoreCase(mode)) {
-          currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
-          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        } else if ("sensor".equalsIgnoreCase(mode)) {
-          currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
-          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
-        } else if ("current".equalsIgnoreCase(mode)) {
-          // Khóa cứng tại hướng máy đang cầm hiện tại (kể cả khi người dùng nằm xuống)
+        isOrientationLocked = !isOrientationLocked;
+        result[0] = isOrientationLocked;
+        if (isOrientationLocked) {
+          // Bắt góc hướng hiện tại và khóa cứng
           int orient = getResources().getConfiguration().orientation;
           if (orient == Configuration.ORIENTATION_LANDSCAPE) {
-            currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            lockedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED;
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
           } else {
-            currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+            lockedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
           }
+        } else {
+          // Tắt khóa: cho phép xoay theo cảm biến
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
         }
       });
+      return isOrientationLocked;
     }
 
     @JavascriptInterface
     public void enterPlayerMode() {
       runOnUiThread(() -> {
-        isPlayerMode = true;
-        // Bật sáng màn hình
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (!isOrientationLocked) {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        }
       });
     }
 
     @JavascriptInterface
     public void enterPortraitMode() {
       runOnUiThread(() -> {
-        isPlayerMode = false;
-        currentOrientationMode = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+        isOrientationLocked = false;
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        // Tắt giữ sáng khi thoát player về trang chủ
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
       });
     }
@@ -89,9 +85,10 @@ public class MainActivity extends Activity {
     @JavascriptInterface
     public void enterFullscreen() {
       runOnUiThread(() -> {
-        isPlayerMode = true;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        if (!isOrientationLocked) {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        }
         getWindow().getDecorView().setSystemUiVisibility(
           View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
@@ -107,13 +104,13 @@ public class MainActivity extends Activity {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
-    // Khóa sáng màn hình mặc định và khóa hướng dọc
+    // Luôn giữ sáng màn hình và khởi đầu ở chế độ dọc
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
 
     root = new FrameLayout(this);
     web = new WebView(this);
-    web.setKeepScreenOn(true); // Tránh WebView tự sleep khi phát video
+    web.setKeepScreenOn(true);
     WebSettings settings = web.getSettings();
     settings.setJavaScriptEnabled(true);
     settings.setDomStorageEnabled(true);
@@ -160,7 +157,9 @@ public class MainActivity extends Activity {
         root.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.setVisibility(View.GONE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        if (!isOrientationLocked) {
+          setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        }
         getWindow().getDecorView().setSystemUiVisibility(
           View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         );
@@ -196,10 +195,8 @@ public class MainActivity extends Activity {
     root.removeView(fullscreenView);
     fullscreenView = null;
     web.setVisibility(View.VISIBLE);
-    if (!isPlayerMode) {
+    if (!isOrientationLocked) {
       setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-    } else {
-      setRequestedOrientation(currentOrientationMode);
     }
     getWindow().getDecorView().setSystemUiVisibility(0);
     if (fullscreenCallback != null) {

@@ -13,8 +13,7 @@ const state = {
   searchQuery: '',
   searchResults: [],
   history: [],
-  // Các chế độ xoay: 'portrait' (dựng đứng), 'landscape' (nằm ngang), 'sensor' (tự động theo cảm biến)
-  orientationMode: 'portrait',
+  isLocked: false,
   wakeLock: null
 };
 
@@ -47,59 +46,33 @@ function releaseWakeLock() {
   }
 }
 
-// 2. Đồng bộ hướng màn hình (Khóa dọc / Khóa ngang / Tự xoay)
-function applyOrientation(mode) {
-  state.orientationMode = mode;
-  
-  // Gửi lệnh xuống Native Android
-  if (window.VietStreamAndroid) {
-    if (mode === 'portrait') {
-      window.VietStreamAndroid.setOrientation ? window.VietStreamAndroid.setOrientation('portrait') : window.VietStreamAndroid.enterPortraitMode?.();
-    } else if (mode === 'landscape') {
-      window.VietStreamAndroid.setOrientation ? window.VietStreamAndroid.setOrientation('landscape') : window.VietStreamAndroid.enterFullscreen?.();
-    } else {
-      window.VietStreamAndroid.setOrientation ? window.VietStreamAndroid.setOrientation('sensor') : window.VietStreamAndroid.enterPlayerMode?.();
-    }
+// 2. Khóa góc xoay trực tiếp bên trong video player
+function toggleVideoOrientationLock() {
+  state.isLocked = !state.isLocked;
+
+  // Gọi Native Android
+  if (window.VietStreamAndroid?.toggleLockCurrentOrientation) {
+    window.VietStreamAndroid.toggleLockCurrentOrientation();
   }
 
-  // Web Screen Orientation API (cho PWA/trình duyệt mobile)
+  // Khóa Web Screen Orientation API (cho trình duyệt)
   if (screen.orientation) {
-    if (mode === 'portrait' && screen.orientation.lock) {
-      screen.orientation.lock('portrait').catch(() => {});
-    } else if (mode === 'landscape' && screen.orientation.lock) {
-      screen.orientation.lock('landscape').catch(() => {});
-    } else if (mode === 'sensor' && screen.orientation.unlock) {
+    if (state.isLocked && screen.orientation.lock) {
+      const currentType = screen.orientation.type?.includes('landscape') ? 'landscape' : 'portrait';
+      screen.orientation.lock(currentType).catch(() => {});
+    } else if (screen.orientation.unlock) {
       screen.orientation.unlock();
     }
   }
 
-  // Cập nhật text trên các nút điều khiển xoay
-  updateOrientationButtons();
-}
-
-function cycleOrientation() {
-  if (state.orientationMode === 'portrait') {
-    applyOrientation('landscape'); // Đang đứng -> Khóa cố định nằm ngang
-  } else if (state.orientationMode === 'landscape') {
-    applyOrientation('sensor'); // Đang ngang -> Tự do xoay theo cảm biến
-  } else {
-    applyOrientation('portrait'); // Đang tự xoay -> Khóa đứng cố định
+  // Cập nhật giao diện nút khóa bên trong player
+  const btn = document.getElementById('video-screen-lock');
+  if (btn) {
+    btn.classList.toggle('locked', state.isLocked);
+    btn.innerHTML = state.isLocked 
+      ? '🔒 Đã khóa màn hình' 
+      : '🔓 Khóa xoay';
   }
-}
-
-function updateOrientationButtons() {
-  document.querySelectorAll('[data-action="toggle-lock"]').forEach(btn => {
-    if (state.orientationMode === 'portrait') {
-      btn.innerHTML = '📱 Khóa dọc: Cố định';
-      btn.className = 'secondary lock-btn lock-portrait';
-    } else if (state.orientationMode === 'landscape') {
-      btn.innerHTML = '📺 Khóa ngang: Cố định';
-      btn.className = 'secondary lock-btn lock-landscape';
-    } else {
-      btn.innerHTML = '🔄 Xoay tự do: Cảm biến';
-      btn.className = 'secondary lock-btn lock-sensor';
-    }
-  });
 }
 
 function setView(view, push = true) {
@@ -117,14 +90,12 @@ function setView(view, push = true) {
 
   if (view === 'player') {
     requestWakeLock();
-    // Khi vào xem phim, nếu đang ở chế độ dọc thì chuyển sang tự do hoặc ngang theo ý người dùng
-    if (state.orientationMode === 'portrait') {
-      applyOrientation('sensor');
-    }
+    state.isLocked = false;
+    window.VietStreamAndroid?.enterPlayerMode?.();
   } else {
     releaseWakeLock();
-    // Khi quay về các trang danh mục, khóa đứng cố định để duyệt phim thoải mái
-    applyOrientation('portrait');
+    state.isLocked = false;
+    window.VietStreamAndroid?.enterPortraitMode?.();
   }
 }
 
@@ -208,7 +179,6 @@ async function home(push = true) {
           <div class="actions">
             <button class="primary" data-action="detail" data-id="${escapeHtml(hero.id)}" data-type="${escapeHtml(hero.type || 'movie')}">▶ Xem ngay</button>
             <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(hero.id)}">＋ Tủ phim</button>
-            <button class="secondary lock-btn" data-action="toggle-lock">📱 Khóa xoay</button>
           </div>
         </div>
       </section>
@@ -225,7 +195,6 @@ async function home(push = true) {
         <div class="grid">${seriesList.slice(0, 10).map(card).join('')}</div>
       </section>
     `;
-    updateOrientationButtons();
   } catch (e) {
     error(e);
   }
@@ -254,18 +223,12 @@ function search(push = true) {
   const prevQuery = state.searchQuery || '';
   app.innerHTML = `
     <div class="page">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <h1 class="page-title">Tìm kiếm</h1>
-          <p class="page-subtitle">Tìm phim nhanh qua KKphim, Phim4K, NguonC.</p>
-        </div>
-        <button class="secondary lock-btn" data-action="toggle-lock" style="font-size:12px; padding:6px 10px;">📱 Khóa xoay</button>
-      </div>
+      <h1 class="page-title">Tìm kiếm</h1>
+      <p class="page-subtitle">Tìm phim nhanh qua KKphim, Phim4K, NguonC.</p>
       <input class="search-input" id="search-box" placeholder="Nhập tên phim..." autocomplete="off" value="${escapeHtml(prevQuery)}">
       <div id="search-results"></div>
     </div>
   `;
-  updateOrientationButtons();
   const input = document.getElementById('search-box');
   const output = document.getElementById('search-results');
 
@@ -403,20 +366,19 @@ function play(index, push = true) {
   state.hls = null;
   app.innerHTML = `
     <div class="page">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap;">
-        <button class="back" data-action="streams-back" style="font-size:16px; font-weight:700; cursor:pointer; margin-bottom:0;">← Chọn nguồn khác</button>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <button class="secondary lock-btn" data-action="toggle-lock" style="font-size:12px; padding:8px 12px; font-weight:700;">📱 Khóa xoay</button>
-          <button class="secondary" data-action="lock-current" style="font-size:12px; padding:8px 12px; font-weight:700;" title="Giữ cố định góc hiện tại khi nằm xem">🔒 Cố định góc</button>
-        </div>
-      </div>
+      <button class="back" data-action="streams-back" style="font-size:16px; font-weight:700; cursor:pointer; margin-bottom:12px;">← Chọn nguồn khác</button>
       <h1 class="page-title">${escapeHtml(state.current?.name)}</h1>
       <p class="page-subtitle">${escapeHtml(source.name || source.title)}</p>
-      <div class="player-wrap" id="player-wrap"></div>
+      
+      <!-- Video Player bọc nút khóa màn hình trực tiếp ở góc trên khung hình -->
+      <div class="player-wrap" id="player-wrap">
+        <button class="video-lock-btn" id="video-screen-lock" data-action="video-lock" title="Khóa cố định màn hình không bị xoay">
+          🔓 Khóa xoay
+        </button>
+      </div>
       <p class="notice" id="player-status" hidden></p>
     </div>
   `;
-  updateOrientationButtons();
   const wrap = document.getElementById('player-wrap');
   const statusEl = document.getElementById('player-status');
 
@@ -520,18 +482,7 @@ document.addEventListener('click', event => {
   else if (action === 'streams') streams(id);
   else if (action === 'play') play(Number(index));
   else if (action === 'library-toggle') toggleLibrary(id);
-  else if (action === 'toggle-lock') cycleOrientation();
-  else if (action === 'lock-current') {
-    // Khóa cứng góc máy hiện tại (đặc biệt khi nằm nghiêng xem phim)
-    if (window.VietStreamAndroid?.setOrientation) {
-      window.VietStreamAndroid.setOrientation('current');
-    }
-    const btn = event.target.closest('[data-action="lock-current"]');
-    if (btn) {
-      btn.innerHTML = '🔒 Đã khóa cứng góc';
-      setTimeout(() => { if (btn) btn.innerHTML = '🔒 Cố định góc'; }, 2000);
-    }
-  }
+  else if (action === 'video-lock') toggleVideoOrientationLock();
   else if (action === 'detail-back') {
     if (state.lastDetail) detail(state.lastDetail.type, state.lastDetail.id, false);
     else goBack();
