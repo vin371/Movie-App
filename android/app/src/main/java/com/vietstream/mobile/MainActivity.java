@@ -205,25 +205,21 @@ public class MainActivity extends Activity {
     }
   }
 
-  private void onScreenTouched() {
-    if (lockButton == null) return;
-    if (isLocked) {
-      // Khi đang khóa: Chạm vào màn hình thì hiện rõ biểu tượng ổ khóa 100% để người dùng bấm mở
-      lockButton.setVisibility(View.VISIBLE);
-      lockButton.setAlpha(1.0f);
-      scheduleHideControls();
-    } else {
-      // Khi không khóa: Toggle ẩn/hiện nút khóa theo các điều khiển video
-      if (lockButton.getVisibility() == View.VISIBLE && lockButton.getAlpha() == 1.0f) {
-        lockButton.setVisibility(View.GONE);
-      } else {
-        lockButton.setVisibility(View.VISIBLE);
-        lockButton.setAlpha(1.0f);
-        scheduleHideControls();
-      }
+  @Override public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+    if (fullscreenContainer != null && event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+      onScreenTouched();
     }
+    return super.dispatchTouchEvent(event);
   }
 
+  private void onScreenTouched() {
+    if (lockButton == null || fullscreenContainer == null) return;
+    lockButton.setVisibility(View.VISIBLE);
+    lockButton.setAlpha(1f);
+    lockButton.setText(isLocked ? "🔓\nMở khóa" : "🔒\nKhóa");
+    if (rotateButton != null) rotateButton.setVisibility(isLocked ? View.GONE : View.VISIBLE);
+    scheduleHideControls();
+  }
   private void toggleLockState() {
     if (lockButton == null) return;
     isLocked = !isLocked;
@@ -241,7 +237,7 @@ public class MainActivity extends Activity {
       lockedBg.setCornerRadius(28f);
       lockedBg.setStroke(3, Color.parseColor("#FFFF6B72"));
       lockButton.setBackground(lockedBg);
-      lockButton.setText("🔒\nĐang khóa");
+      lockButton.setText("🔓\nMở khóa");
       lockButton.setAlpha(1.0f);
     } else {
       // 1. MỞ KHÓA: Cho phép xoay theo cảm biến ở CẢ BỐN HƯỚNG (FULL_SENSOR)
@@ -266,22 +262,11 @@ public class MainActivity extends Activity {
     if (lockButton == null) return;
     if (hideControlsRunnable != null) lockButton.removeCallbacks(hideControlsRunnable);
     hideControlsRunnable = () -> {
-      if (lockButton != null) {
-        if (isLocked) {
-          // KHI ĐANG KHÓA: Giữ biểu tượng ổ khóa hiện rõ trên video (bán trong suốt mờ nhẹ) để người dùng chạm mở bất cứ lúc nào
-          lockButton.setVisibility(View.VISIBLE);
-          lockButton.setAlpha(0.6f);
-          lockButton.setText("🔒");
-        } else {
-          // KHI KHÔNG KHÓA: Tự mờ đi cùng các điều khiển video
-          lockButton.setVisibility(View.VISIBLE);
-          lockButton.setAlpha(0.75f);
-        }
-      }
+      lockButton.setVisibility(View.GONE);
+      if (rotateButton != null) rotateButton.setVisibility(View.GONE);
     };
-    lockButton.postDelayed(hideControlsRunnable, 3500);
+    lockButton.postDelayed(hideControlsRunnable, 5000);
   }
-
   private void exitFullscreenMode() {
     if (fullscreenContainer == null && customView == null) return;
     isLocked = false;
