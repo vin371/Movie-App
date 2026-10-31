@@ -33,6 +33,8 @@ public class MainActivity extends Activity {
   private FrameLayout overlayLayout;
   private TextView lockButton;
   private TextView rotateButton;
+  private float touchStartX, touchStartY;
+  private boolean touchingPlayerButton;
   private View touchBlocker;
   private boolean isLocked = false;
   private Runnable hideControlsRunnable;
@@ -181,8 +183,7 @@ public class MainActivity extends Activity {
         scheduleHideControls();
 
         // Chạm vào màn hình để hiện lại nút khóa
-        fullscreenContainer.setOnClickListener(v -> onScreenTouched());
-        touchBlocker.setOnClickListener(v -> onScreenTouched());
+        touchBlocker.setOnClickListener(v -> {});
 
         // Bấm nút Khóa / Mở khóa
         lockButton.setOnClickListener(v -> toggleLockState());
@@ -206,14 +207,33 @@ public class MainActivity extends Activity {
   }
 
   @Override public boolean dispatchTouchEvent(android.view.MotionEvent event) {
-    if (fullscreenContainer != null && event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-      onScreenTouched();
+    if (fullscreenContainer != null) {
+      if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+        touchStartX = event.getRawX();
+        touchStartY = event.getRawY();
+        touchingPlayerButton = hitsButton(lockButton, event) || hitsButton(rotateButton, event);
+      } else if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP && !touchingPlayerButton) {
+        float slop = android.view.ViewConfiguration.get(this).getScaledTouchSlop();
+        if (Math.abs(event.getRawX() - touchStartX) < slop && Math.abs(event.getRawY() - touchStartY) < slop) onScreenTouched();
+      }
     }
     return super.dispatchTouchEvent(event);
   }
 
+  private boolean hitsButton(View button, android.view.MotionEvent event) {
+    if (button == null || button.getVisibility() != View.VISIBLE) return false;
+    android.graphics.Rect bounds = new android.graphics.Rect();
+    return button.getGlobalVisibleRect(bounds) && bounds.contains((int) event.getRawX(), (int) event.getRawY());
+  }
+
   private void onScreenTouched() {
     if (lockButton == null || fullscreenContainer == null) return;
+    if (lockButton.getVisibility() == View.VISIBLE) {
+      if (hideControlsRunnable != null) lockButton.removeCallbacks(hideControlsRunnable);
+      lockButton.setVisibility(View.GONE);
+      if (rotateButton != null) rotateButton.setVisibility(View.GONE);
+      return;
+    }
     lockButton.setVisibility(View.VISIBLE);
     lockButton.setAlpha(1f);
     lockButton.setText(isLocked ? "🔓\nMở khóa" : "🔒\nKhóa");
