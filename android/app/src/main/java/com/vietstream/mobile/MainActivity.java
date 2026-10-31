@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
   // Lớp điều khiển phủ lên video (Overlay)
   private FrameLayout overlayLayout;
   private TextView lockButton;
+  private TextView rotateButton;
   private View touchBlocker;
   private boolean isLocked = false;
   private Runnable hideControlsRunnable;
@@ -43,7 +44,7 @@ public class MainActivity extends Activity {
     public void keepScreenOn(boolean keepOn) {
       runOnUiThread(() -> {
         if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else if (customView == null) getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
       });
     }
 
@@ -120,6 +121,8 @@ public class MainActivity extends Activity {
         // Container toàn màn hình
         fullscreenContainer = new FrameLayout(MainActivity.this);
         fullscreenContainer.setBackgroundColor(Color.BLACK);
+        fullscreenContainer.setKeepScreenOn(true);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         fullscreenContainer.addView(view, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // Lớp chặn chạm nhầm khi đang khóa (trong suốt)
@@ -151,6 +154,21 @@ public class MainActivity extends Activity {
         lockLp.gravity = Gravity.CENTER_VERTICAL | Gravity.LEFT;
         lockLp.leftMargin = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24, getResources().getDisplayMetrics());
         overlayLayout.addView(lockButton, lockLp);
+        rotateButton = new TextView(MainActivity.this);
+        rotateButton.setGravity(Gravity.CENTER);
+        rotateButton.setText("↻\nXoay");
+        rotateButton.setTextColor(Color.WHITE);
+        rotateButton.setTextSize(14);
+        rotateButton.setBackgroundColor(Color.parseColor("#99141721"));
+        FrameLayout.LayoutParams rotateLp = new FrameLayout.LayoutParams(sizePx, sizePx);
+        rotateLp.gravity = Gravity.CENTER_VERTICAL | Gravity.RIGHT;
+        rotateLp.rightMargin = lockLp.leftMargin;
+        overlayLayout.addView(rotateButton, rotateLp);
+        rotateButton.setOnClickListener(v -> {
+          if (isLocked) return;
+          boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+          setRequestedOrientation(landscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        });
 
         // Ban đầu ở toàn màn hình: Cho phép xoay 4 hướng theo cảm biến (FULL_SENSOR)
         isLocked = false;
@@ -209,6 +227,7 @@ public class MainActivity extends Activity {
   private void toggleLockState() {
     if (lockButton == null) return;
     isLocked = !isLocked;
+    if (rotateButton != null) rotateButton.setVisibility(isLocked ? View.GONE : View.VISIBLE);
     if (isLocked) {
       // 1. CỐ ĐỊNH HƯỚNG MÀN HÌNH HIỆN TẠI (Dù xoay điện thoại theo hướng nào)
       setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
@@ -255,7 +274,8 @@ public class MainActivity extends Activity {
           lockButton.setText("🔒");
         } else {
           // KHI KHÔNG KHÓA: Tự mờ đi cùng các điều khiển video
-          lockButton.setVisibility(View.GONE);
+          lockButton.setVisibility(View.VISIBLE);
+          lockButton.setAlpha(0.75f);
         }
       }
     };
@@ -265,6 +285,7 @@ public class MainActivity extends Activity {
   private void exitFullscreenMode() {
     if (fullscreenContainer == null && customView == null) return;
     isLocked = false;
+    if (lockButton != null && hideControlsRunnable != null) lockButton.removeCallbacks(hideControlsRunnable);
     if (fullscreenContainer != null) {
       root.removeView(fullscreenContainer);
       fullscreenContainer = null;

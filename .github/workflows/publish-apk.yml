@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'downloads/VietStream-v1.5-debug.apk'
+      - 'downloads/VietStream-v1.6-debug.apk'
       - '.github/workflows/publish-apk.yml'
   workflow_dispatch:
 
@@ -20,9 +20,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v1.5 downloads/VietStream-v1.5-debug.apk \
+          gh release create v1.6 downloads/VietStream-v1.6-debug.apk \
             --target "$GITHUB_SHA" \
-            --title "VietStream Android v1.5" \
+            --title "VietStream Android v1.6" \
             --notes "Giữ nguyên phim khi xoay máy, hỗ trợ bốn hướng màn hình trong chế độ toàn màn hình. APK debug để cài trực tiếp trên điện thoại Android." \
             --prerelease
 
