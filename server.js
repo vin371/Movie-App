@@ -2,13 +2,18 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('node:path');
 const routes = require('./src/routes');
 const { CONFIG } = require('./src/config');
 
 const app = express();
 app.disable('x-powered-by');
 app.use(cors({ origin: true }));
-const path = require('node:path');
+app.use('/pwa', express.static(path.join(__dirname, 'public/pwa')));
+app.get('/sw.js', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public/sw.js'));
+});
 app.get('/hls.min.js', (req, res) => res.sendFile(require.resolve('hls.js/dist/hls.min.js')));
 app.get('/favicon.svg', (req, res) => res.sendFile(path.join(__dirname, 'nuvio-plugin/logo.svg')));
 app.get('/download/VietStream.apk', (req, res) =>
