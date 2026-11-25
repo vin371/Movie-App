@@ -33,13 +33,33 @@ jobs:
           node --check src/hls-proxy.js
           node --check src/config.js
 
+      - name: Test episode navigation and autoplay
+        run: node --test tests/episodes.test.js
+
       - name: Test Server Startup & Endpoints
         run: |
           npm start > /tmp/vietstream-server.log 2>&1 &
           curl --fail --retry 10 --retry-delay 1 --retry-connrefused http://localhost:7001/app > /dev/null
           curl --fail http://localhost:7001/manifest.json > /dev/null
 
+  deploy-web:
+    name: Deploy web update without reinstalling APK
+    needs: verify-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deployment
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK" ]; then
+            curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK" > /dev/null
+          else
+            echo 'No deploy hook configured. Render must have Git auto-deploy enabled for this repository.'
+          fi
+
   build-android-apk:
+    if: github.event_name == 'workflow_dispatch'
     name: Build Android APK
     needs: verify-and-test
     runs-on: ubuntu-latest

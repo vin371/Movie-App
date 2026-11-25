@@ -9,6 +9,13 @@ const { CONFIG } = require('./src/config');
 const app = express();
 app.disable('x-powered-by');
 app.use(cors({ origin: true }));
+// Revalidate the remotely served UI so installed WebViews receive web updates.
+app.use((req, res, next) => {
+  if (['/app', '/app/1', '/mobile-app.js', '/mobile-app.css'].includes(req.path)) {
+    res.set('Cache-Control', 'no-cache, must-revalidate');
+  }
+  next();
+});
 app.use('/pwa', express.static(path.join(__dirname, 'public/pwa')));
 app.get('/sw.js', (req, res) => {
   res.set('Cache-Control', 'no-cache');

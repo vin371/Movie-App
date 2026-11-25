@@ -10,13 +10,57 @@ const state = {
   streams: [],
   lastDetail: null,
   hls: null,
-  searchQuery: '',
+  searchQuery: readStored('vietstream-search', ''),
   searchResults: [],
   history: [],
   wakeLock: null,
   isLocked: false,
   lockTimer: null
 };
+
+function readStored(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function writeStored(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be full or disabled. */ }
+}
+function watchedEpisode() {
+  return readStored('vietstream-progress', {})[state.current?.id];
+}
+function rememberEpisode(id) {
+  const entries = Object.entries(readStored('vietstream-progress', {})).filter(([key]) => key !== state.current.id).slice(-199);
+  writeStored('vietstream-progress', Object.fromEntries([...entries, [state.current.id, { id, updated: Date.now() }]]));
+}
+function renderEpisodes(page) {
+  const target = document.getElementById('episode-browser');
+  if (!target) return;
+  const videos = state.current.videos || [];
+  const last = watchedEpisode()?.id;
+  const selected = videos.findIndex(v => v.id === last);
+  const pages = Math.ceil(videos.length / 50);
+  const currentPage = Math.max(0, Math.min(pages - 1, page ?? Math.floor(Math.max(0, selected) / 50)));
+  state.episodePage = currentPage;
+  const start = currentPage * 50;
+  target.innerHTML = `
+    <div class="section-head"><h2>Chọn tập phim</h2><small>${videos.length} tập</small></div>
+    <div class="episode-tools">
+      ${selected >= 0 ? `<button class="primary" data-action="streams" data-id="${escapeHtml(last)}">▶ Xem tiếp: ${escapeHtml(videos[selected].title || `Tập ${selected + 1}`)}</button>` : ''}
+      <form id="episode-jump"><label for="episode-number">Đến tập</label><input id="episode-number" type="number" inputmode="numeric" min="1" max="${videos.length}" placeholder="1–${videos.length}" required><button class="secondary">Xem ngay</button></form>
+      <label>Khoảng tập <select id="episode-range" aria-label="Chọn khoảng tập">${Array.from({length: pages}, (_, i) => `<option value="${i}" ${i === currentPage ? 'selected' : ''}>${i * 50 + 1}–${Math.min((i + 1) * 50, videos.length)}</option>`).join('')}</select></label>
+    </div>
+    <div class="episode-grid">${videos.slice(start, start + 50).map((v, i) => `<button class="episode-chip ${v.id === last ? 'is-current' : ''}" data-action="streams" data-id="${escapeHtml(v.id)}" ${v.id === last ? 'aria-current="true"' : ''}><span>${escapeHtml(v.title || `Tập ${start + i + 1}`)}</span>${v.id === last ? '<small>Đang xem</small>' : ''}</button>`).join('')}</div>
+    <div class="episode-pages"><button class="secondary" data-action="episode-prev" ${currentPage === 0 ? 'disabled' : ''}>← Trước</button><span>${start + 1}–${Math.min(start + 50, videos.length)} / ${videos.length}</span><button class="secondary" data-action="episode-next" ${currentPage === pages - 1 ? 'disabled' : ''}>Sau →</button></div>`;
+  document.getElementById('episode-range').onchange = e => renderEpisodes(Number(e.target.value));
+  document.getElementById('episode-jump').onsubmit = e => {
+    e.preventDefault();
+    const input = document.getElementById('episode-number');
+    if (input.reportValidity()) {
+      const number = Number(input.value);
+      const episode = videos.find(v => Number(v.episode) === number) || videos[number - 1];
+      streams(episode.id, true, true);
+    }
+  };
+}
 
 const saved = () => { try { return JSON.parse(localStorage.getItem('vietstream-library') || '[]'); } catch { return []; } };
 const save = items => localStorage.setItem('vietstream-library', JSON.stringify(items));
@@ -48,6 +92,15 @@ function releaseWakeLock() {
 }
 
 function setView(view, push = true) {
+  if (state.view === 'player') {
+    state.playbackCleanup?.();
+    state.playbackCleanup = null;
+    state.hls?.destroy();
+    state.hls = null;
+    state.isLocked = false;
+    window.VietStreamAndroid?.lockOrientation?.(false);
+    clearTimeout(state.lockTimer);
+  }
   if (push && state.view && state.view !== view) {
     state.history.push({ 
       view: state.view, 
@@ -70,7 +123,7 @@ function setView(view, push = true) {
 function goBack() {
   if (state.view === 'player') {
     if (state.lastDetail) {
-      streams(state.lastDetail.id, false);
+      detail(state.lastDetail.type, state.lastDetail.id, false);
       return;
     }
   }
@@ -88,7 +141,7 @@ function goBack() {
   }
 
   if (prev.view === 'search') {
-    state.searchQuery = prev.searchQuery || state.searchQuery;
+    state.searchQuery = prev.searchQuery ?? state.searchQuery;
     state.searchResults = prev.searchResults || state.searchResults;
     search(false);
   } else if (prev.view === 'series') {
@@ -203,9 +256,12 @@ function search(push = true) {
   if (state.searchResults && state.searchResults.length > 0) {
     output.innerHTML = `<div class="grid">${state.searchResults.map(card).join('')}</div>`;
   }
+  else if (prevQuery) runSearch(prevQuery);
 
   let timer;
   input.oninput = () => {
+    state.searchQuery = input.value;
+    writeStored('vietstream-search', input.value);
     clearTimeout(timer);
     timer = setTimeout(() => runSearch(input.value.trim()), 300);
   };
@@ -214,6 +270,7 @@ function search(push = true) {
 
 async function runSearch(query) {
   state.searchQuery = query;
+  writeStored('vietstream-search', query);
   const output = document.getElementById('search-results');
   if (!output) return;
   if (!query) {
@@ -274,35 +331,32 @@ async function detail(type, id, push = true) {
             <div class="meta-line">${escapeHtml(m.releaseInfo || m.year || '')} ${m.runtime ? `· ${escapeHtml(m.runtime)}` : ''}</div>
             <p class="description">${escapeHtml(m.description || 'Chưa có mô tả.')}</p>
             <div class="actions">
-              <button class="primary" data-action="streams" data-id="${escapeHtml(m.id)}">▶ Xem phim</button>
+              <button class="primary" data-action="streams" data-id="${escapeHtml(watchedEpisode()?.id || m.videos?.[0]?.id || m.id)}">▶ Xem phim</button>
               <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(m.id)}">${inLibrary ? '✓ Đã lưu' : '＋ Lưu vào tủ phim'}</button>
             </div>
           </div>
         </div>
-        ${m.videos?.length ? `
-          <div class="section-head"><h2>Danh sách tập</h2><small>${m.videos.length} tập</small></div>
-          <div class="episode-list">${m.videos.map((v, i) => `
-            <button class="row-button" data-action="streams" data-id="${escapeHtml(v.id)}">
-              <span>${escapeHtml(v.title || `Tập ${i + 1}`)}</span>
-              <span>▶</span>
-            </button>
-          `).join('')}</div>
-        ` : ''}
+        <section id="episode-browser"></section>
       </div>
     `;
+    if (m.videos?.length) renderEpisodes();
   } catch (e) {
     error(e);
   }
 }
 
-async function streams(id, push = true) {
+async function streams(id, push = true, autoPlay = false) {
+  const request = state.streamRequest = (state.streamRequest || 0) + 1;
   const m = state.current;
   if (!m) return;
   setView('streams', push);
+  state.episodeId = id;
   status('Đang lấy các nguồn phát tốc độ cao...');
   try {
     const { streams: list } = await api(`/stream/${m.type || 'movie'}/${encodeURIComponent(id)}.json`);
+    if (state.view !== 'streams' || state.current !== m || state.episodeId !== id || request !== state.streamRequest) return;
     state.streams = list || [];
+    if (autoPlay && state.streams.length) { play(Math.max(0, state.streams.findIndex(s => s.name === state.preferredSource)), false); return; }
     app.innerHTML = `
       <div class="page">
         <button class="back" data-action="detail-back" style="font-size:16px; font-weight:700; cursor:pointer;">← Chi tiết phim</button>
@@ -322,6 +376,7 @@ async function streams(id, push = true) {
       </div>
     `;
   } catch (e) {
+    if (state.view !== 'streams' || request !== state.streamRequest) return;
     error(e);
   }
 }
@@ -329,6 +384,8 @@ async function streams(id, push = true) {
 function play(index, push = true) {
   const source = state.streams[index];
   if (!source) return;
+  state.preferredSource = source.name;
+  rememberEpisode(state.episodeId || state.current.id);
   setView('player', push);
   state.hls?.destroy();
   state.hls = null;
@@ -387,6 +444,7 @@ function play(index, push = true) {
   video.autoplay = true;
   video.playsInline = true;
   wrap.append(video);
+  setupNextEpisode(video, wrap);
   video.onerror = () => {
     statusEl.hidden = false;
     statusEl.textContent = 'Không phát được nguồn này. Hãy quay lại chọn nguồn khác.';
@@ -440,6 +498,46 @@ function play(index, push = true) {
   }
 }
 
+function setupNextEpisode(video, wrap) {
+  const videos = state.current.videos || [];
+  const index = videos.findIndex(v => v.id === state.episodeId);
+  const next = index >= 0 ? videos[index + 1] : null;
+  if (!next) return;
+  let cancelled = false;
+  let advancing = false;
+  const panel = document.createElement('aside');
+  panel.className = 'next-episode';
+  panel.hidden = true;
+  panel.setAttribute('aria-label', 'Tập tiếp theo');
+  panel.innerHTML = `<strong>Tiếp theo: ${escapeHtml(next.title || `Tập ${index + 2}`)}</strong><p class="next-countdown" role="status"></p><div class="actions"><button class="primary" id="next-now">Xem ngay</button><button class="secondary" id="next-cancel">Hủy tự chuyển</button></div>`;
+  wrap.append(panel);
+  const advance = () => {
+    if (advancing || !video.isConnected || state.view !== 'player') return;
+    advancing = true;
+    streams(next.id, false, true);
+  };
+  panel.querySelector('#next-now').onclick = advance;
+  panel.querySelector('#next-cancel').onclick = () => { cancelled = true; panel.hidden = true; };
+  const update = () => {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+    const remaining = video.duration - video.currentTime;
+    panel.hidden = cancelled || remaining > 10 || remaining < 0;
+    if (!panel.hidden) panel.querySelector('.next-countdown').textContent = `Tự chuyển sau ${Math.max(0, Math.ceil(remaining))} giây${video.paused ? ' · Đang tạm dừng' : ''}`;
+  };
+  const ended = () => { if (!cancelled) advance(); };
+  video.addEventListener('timeupdate', update);
+  video.addEventListener('pause', update);
+  video.addEventListener('play', update);
+  video.addEventListener('ended', ended);
+  state.playbackCleanup = () => {
+    video.removeEventListener('timeupdate', update);
+    video.removeEventListener('pause', update);
+    video.removeEventListener('play', update);
+    video.removeEventListener('ended', ended);
+    video.pause();
+  };
+}
+
 function toggleOverlayLock() {
   state.isLocked = !state.isLocked;
   const lockBtn = document.getElementById('web-overlay-lock');
@@ -489,8 +587,10 @@ document.addEventListener('click', event => {
     return;
   }
   if (action === 'detail') detail(type, id);
-  else if (action === 'streams') streams(id);
+  else if (action === 'streams') streams(id, true, true);
   else if (action === 'play') play(Number(index));
+  else if (action === 'episode-prev') renderEpisodes(state.episodePage - 1);
+  else if (action === 'episode-next') renderEpisodes(state.episodePage + 1);
   else if (action === 'library-toggle') toggleLibrary(id);
   else if (action === 'overlay-lock') toggleOverlayLock();
   else if (action === 'detail-back') {
@@ -498,7 +598,7 @@ document.addEventListener('click', event => {
     else goBack();
   }
   else if (action === 'streams-back') {
-    if (state.lastDetail) streams(state.lastDetail.id, false);
+    if (state.lastDetail) streams(state.episodeId || state.lastDetail.id, false);
     else goBack();
   }
   else if (action === 'back') goBack();
