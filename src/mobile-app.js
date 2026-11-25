@@ -345,6 +345,27 @@ async function detail(type, id, push = true) {
   }
 }
 
+function audioMode(source) {
+  const label = String(source.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').toLowerCase();
+  if (/long\s*tieng|dub/.test(label)) return 'Lồng tiếng';
+  if (/thuyet\s*minh|voice.?over/.test(label)) return 'Thuyết minh';
+  if (/vietsub|phu\s*de|sub/.test(label)) return 'Vietsub';
+  // Unknown versions must not be silently treated as Vietsub.
+  return source.behaviorHints?.bingeGroup || source.name || 'Nguồn khác';
+}
+
+function preferredStream(list, preference) {
+  if (!preference) return null;
+  const matches = list.filter(source => audioMode(source) === preference.audio);
+  return matches.find(source => source.name === preference.name) || matches[0] || null;
+}
+
+function rememberSource(source) {
+  state.preferredSource = source.name;
+  state.audioPreference = { audio: audioMode(source), name: source.name };
+  writeStored(`vietstream-audio:${state.current.id}`, state.audioPreference);
+}
+
 async function streams(id, push = true, autoPlay = false) {
   const request = state.streamRequest = (state.streamRequest || 0) + 1;
   const m = state.current;
@@ -356,15 +377,23 @@ async function streams(id, push = true, autoPlay = false) {
     const { streams: list } = await api(`/stream/${m.type || 'movie'}/${encodeURIComponent(id)}.json`);
     if (state.view !== 'streams' || state.current !== m || state.episodeId !== id || request !== state.streamRequest) return;
     state.streams = list || [];
-    if (autoPlay && state.streams.length) { play(Math.max(0, state.streams.findIndex(s => s.name === state.preferredSource)), false); return; }
+    const preference = readStored(`vietstream-audio:${m.id}`, null);
+    const preferred = preferredStream(state.streams, preference);
+    const modes = [...new Set(state.streams.map(audioMode))];
+    if (autoPlay && (preferred || (modes.length === 1 && !preference))) {
+      play(preferred ? state.streams.indexOf(preferred) : 0, false);
+      return;
+    }
     app.innerHTML = `
       <div class="page">
         <button class="back" data-action="detail-back" style="font-size:16px; font-weight:700; cursor:pointer;">← Chi tiết phim</button>
         <h1 class="page-title">${escapeHtml(m.name)}</h1>
         <p class="page-subtitle">Chọn nguồn phát mượt nhất bên dưới:</p>
         ${list?.length ? `
+          <p class="notice">Chọn phiên bản âm thanh. Lựa chọn được giữ khi chuyển tập.</p>
+          <div class="actions" aria-label="Phiên bản âm thanh">${modes.map(mode => `<button class="secondary" data-action="audio-filter" data-mode="${escapeHtml(mode)}">${escapeHtml(mode)}</button>`).join('')}<button class="secondary" data-action="audio-filter" data-mode="">Tất cả</button></div>
           <div class="source-list">${list.map((s, i) => `
-            <button class="row-button" data-action="play" data-index="${i}">
+            <button class="row-button" data-action="play" data-index="${i}" data-audio="${escapeHtml(audioMode(s))}">
               <div>
                 <strong>${escapeHtml(s.name || `Nguồn ${i + 1}`)}</strong>
                 <div style="font-size:12px; color:#9da4af; margin-top:2px;">${escapeHtml(s.title || '')}</div>
@@ -384,7 +413,7 @@ async function streams(id, push = true, autoPlay = false) {
 function play(index, push = true) {
   const source = state.streams[index];
   if (!source) return;
-  state.preferredSource = source.name;
+  rememberSource(source);
   rememberEpisode(state.episodeId || state.current.id);
   setView('player', push);
   state.hls?.destroy();
@@ -520,7 +549,9 @@ async function advanceNextEpisode(next, video, wrap, panel, retry) {
     const result = await api(`/stream/${movie.type || 'series'}/${encodeURIComponent(next.id)}.json`);
     if (state.view !== 'player' || state.current !== movie || state.episodeId !== previous || !video.isConnected || state.streamRequest !== request) return;
     const list = (result.streams || []).filter(source => source.url && !source.externalUrl);
-    const source = list.find(item => item.name === state.preferredSource) || list[0];
+    const preference = state.audioPreference || readStored(`vietstream-audio:${movie.id}`, null);
+    const source = preferredStream(list, preference) || (!preference ? list.find(item => item.name === state.preferredSource) || list[0] : null);
+    if (!source && preference) throw Error(`Tập tiếp theo chưa có bản ${preference.audio}. Hãy chọn nguồn khác để tiếp tục.`);
     if (!source) throw Error('Chưa có nguồn phát trực tiếp. Bạn có thể thử lại hoặc chọn nguồn khác.');
     // Keep the same video element and fullscreen container across episodes.
     // Rebuilding either would close Android WebView's native fullscreen player.
@@ -529,7 +560,7 @@ async function advanceNextEpisode(next, video, wrap, panel, retry) {
     panel.remove();
     state.episodeId = next.id;
     state.streams = result.streams || [];
-    state.preferredSource = source.name;
+    rememberSource(source);
     rememberEpisode(next.id);
     setupNextEpisode(video, wrap);
     const statusEl = document.getElementById('player-status');
@@ -633,6 +664,9 @@ document.addEventListener('click', event => {
   if (action === 'detail') detail(type, id);
   else if (action === 'streams') streams(id, true, true);
   else if (action === 'play') play(Number(index));
+  else if (action === 'audio-filter') {
+    document.querySelectorAll('[data-audio]').forEach(source => { source.hidden = !!button.dataset.mode && source.dataset.audio !== button.dataset.mode; });
+  }
   else if (action === 'episode-prev') renderEpisodes(state.episodePage - 1);
   else if (action === 'episode-next') renderEpisodes(state.episodePage + 1);
   else if (action === 'library-toggle') toggleLibrary(id);

@@ -52,6 +52,27 @@ function player(f, episode = 'ep1') {
   return { video, handlers, get panel() { return panel; } };
 }
 
+test('audio preference survives quality or provider changes and never falls back to another language', () => {
+  const f = fixture();
+  f.run(`state.current={id:'movie'}; rememberSource({name:'KKPhim 1080p · Lồng tiếng'});`);
+  assert.equal(f.run(`readStored('vietstream-audio:movie', null).audio`), 'Lồng tiếng');
+  f.run(`choices=[{name:'KKPhim HD · Vietsub'}, {name:'OPhim 720p · Lồng tiếng'}, {name:'KKPhim HD · Thuyết minh'}];`);
+  assert.equal(f.run(`preferredStream(choices, state.audioPreference).name`), 'OPhim 720p · Lồng tiếng');
+  assert.equal(f.run(`preferredStream([choices[0],choices[2]], state.audioPreference)`), null);
+  assert.equal(f.run(`audioMode(choices[2])`), 'Thuyết minh');
+});
+
+test('opening episode with multiple audio versions presents choices instead of auto-playing first source', async () => {
+  const f = fixture();
+  f.context.fetch = async () => ({ok:true,json:async()=>({streams:[{name:'VN · Vietsub',url:'sub.m3u8'},{name:'VN · Lồng tiếng',url:'dub.m3u8'}]})});
+  f.run(`state.current={id:'movie',type:'series'}; play=()=>{throw Error('Must offer audio choices')};`);
+  await f.run(`streams('ep1',true,true)`);
+  const html = f.elements.get('app-content').innerHTML;
+  assert.match(html, /data-mode="Lồng tiếng"/);
+  assert.match(html, /data-mode="Vietsub"/);
+  assert.equal(f.run('state.view'), 'streams');
+});
+
 test('suggests at 10s, waits through pause/buffering, then advances exactly once at ended', () => {
   const f = fixture(); const p = player(f);
   p.handlers.timeupdate(); assert.equal(p.panel.hidden, true);
