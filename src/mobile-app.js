@@ -37,19 +37,19 @@ function renderEpisodes(page) {
   const videos = state.current.videos || [];
   const last = watchedEpisode()?.id;
   const selected = videos.findIndex(v => v.id === last);
-  const pages = Math.ceil(videos.length / 50);
-  const currentPage = Math.max(0, Math.min(pages - 1, page ?? Math.floor(Math.max(0, selected) / 50)));
+  const pages = Math.ceil(videos.length / 25);
+  const currentPage = Math.max(0, Math.min(pages - 1, page ?? Math.floor(Math.max(0, selected) / 25)));
   state.episodePage = currentPage;
-  const start = currentPage * 50;
+  const start = currentPage * 25;
   target.innerHTML = `
     <div class="section-head"><h2>Chọn tập phim</h2><small>${videos.length} tập</small></div>
     <div class="episode-tools">
       ${selected >= 0 ? `<button class="primary" data-action="streams" data-id="${escapeHtml(last)}">▶ Xem tiếp: ${escapeHtml(videos[selected].title || `Tập ${selected + 1}`)}</button>` : ''}
       <form id="episode-jump"><label for="episode-number">Đến tập</label><input id="episode-number" type="number" inputmode="numeric" min="1" max="${videos.length}" placeholder="1–${videos.length}" required><button class="secondary">Xem ngay</button></form>
-      <label>Khoảng tập <select id="episode-range" aria-label="Chọn khoảng tập">${Array.from({length: pages}, (_, i) => `<option value="${i}" ${i === currentPage ? 'selected' : ''}>${i * 50 + 1}–${Math.min((i + 1) * 50, videos.length)}</option>`).join('')}</select></label>
+      <label>Khoảng tập <select id="episode-range" aria-label="Chọn khoảng tập">${Array.from({length: pages}, (_, i) => `<option value="${i}" ${i === currentPage ? 'selected' : ''}>${i * 25 + 1}–${Math.min((i + 1) * 25, videos.length)}</option>`).join('')}</select></label>
     </div>
-    <div class="episode-grid">${videos.slice(start, start + 50).map((v, i) => `<button class="episode-chip ${v.id === last ? 'is-current' : ''}" data-action="streams" data-id="${escapeHtml(v.id)}" ${v.id === last ? 'aria-current="true"' : ''}><span>${escapeHtml(v.title || `Tập ${start + i + 1}`)}</span>${v.id === last ? '<small>Đang xem</small>' : ''}</button>`).join('')}</div>
-    <div class="episode-pages"><button class="secondary" data-action="episode-prev" ${currentPage === 0 ? 'disabled' : ''}>← Trước</button><span>${start + 1}–${Math.min(start + 50, videos.length)} / ${videos.length}</span><button class="secondary" data-action="episode-next" ${currentPage === pages - 1 ? 'disabled' : ''}>Sau →</button></div>`;
+    <div class="episode-grid">${videos.slice(start, start + 25).map((v, i) => `<button class="episode-chip ${v.id === last ? 'is-current' : ''}" data-action="streams" data-id="${escapeHtml(v.id)}" ${v.id === last ? 'aria-current="true"' : ''}><small>Tập</small><span>${escapeHtml(v.episode || String(v.title || "").match(/\d+/)?.[0] || start + i + 1)}</span>${v.id === last ? '<small>Đang xem</small>' : ''}</button>`).join('')}</div>
+    <div class="episode-pages"><button class="secondary" data-action="episode-prev" ${currentPage === 0 ? 'disabled' : ''}>← Trước</button><span>${start + 1}–${Math.min(start + 25, videos.length)} / ${videos.length}</span><button class="secondary" data-action="episode-next" ${currentPage === pages - 1 ? 'disabled' : ''}>Sau →</button></div>`;
   document.getElementById('episode-range').onchange = e => renderEpisodes(Number(e.target.value));
   document.getElementById('episode-jump').onsubmit = e => {
     e.preventDefault();

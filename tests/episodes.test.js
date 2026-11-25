@@ -21,16 +21,16 @@ function fixture() {
   return { context, elements, run: code => vm.runInContext(code, context) };
 }
 
-test('10,000 episodes render only 50; saved episode opens its correct page and stays highlighted', () => {
+test('10,000 episodes render only 25; saved episode opens its correct page and stays highlighted', () => {
   const f = fixture();
   f.run(`state.current = {id:'series', videos: Array.from({length:10000}, (_,i) => ({id:'ep'+(i+1), title:'Tập '+(i+1)}))}; rememberEpisode('ep9876'); renderEpisodes();`);
   const html = f.elements.get('episode-browser').innerHTML;
-  assert.equal((html.match(/class="episode-chip /g) || []).length, 50);
+  assert.equal((html.match(/class="episode-chip /g) || []).length, 25);
   assert.match(html, /is-current[^]*data-id="ep9876" aria-current="true"/);
-  assert.match(html, /value="197" selected/);
+  assert.match(html, /value="395" selected/);
   assert.match(html, /Xem tiếp: Tập 9876/);
   f.run('renderEpisodes(999999)');
-  assert.equal(f.run('state.episodePage'), 199);
+  assert.equal(f.run('state.episodePage'), 399);
 });
 
 test('search text survives state recreation including clearing', () => {
