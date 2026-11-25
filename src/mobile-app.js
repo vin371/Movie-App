@@ -450,7 +450,16 @@ function play(index, push = true) {
     statusEl.textContent = 'Không phát được nguồn này. Hãy quay lại chọn nguồn khác.';
   };
 
+  loadVideoSource(video, source, statusEl);
+}
+
+function loadVideoSource(video, source, statusEl) {
+  state.hls?.destroy();
+  state.hls = null;
+  const isCurrent = () => state.view === "player" && video.isConnected && state.activeSource === source;
+  state.activeSource = source;
   const attach = () => {
+    if (!isCurrent()) return;
     if (window.Hls?.isSupported()) {
       const h = new Hls({
         maxBufferLength: 45,
@@ -466,6 +475,7 @@ function play(index, push = true) {
       state.hls = h;
       h.loadSource(source.url);
       h.attachMedia(video);
+      h.on(Hls.Events.MANIFEST_PARSED, () => { if (isCurrent()) video.play().catch(() => {}); });
       h.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
           switch (data.type) {
@@ -484,6 +494,7 @@ function play(index, push = true) {
       });
     } else {
       video.src = source.url;
+      video.play().catch(() => {});
     }
   };
 
@@ -493,8 +504,41 @@ function play(index, push = true) {
     const script = document.createElement('script');
     script.src = '/hls.min.js';
     script.onload = attach;
-    script.onerror = () => { video.src = source.url; };
+    script.onerror = () => { if (isCurrent()) { video.src = source.url; video.play().catch(() => {}); } };
     document.head.append(script);
+  }
+}
+
+async function advanceNextEpisode(next, video, wrap, panel, retry) {
+  const movie = state.current;
+  const previous = state.episodeId;
+  const request = state.streamRequest = (state.streamRequest || 0) + 1;
+  const countdown = panel.querySelector('.next-countdown');
+  panel.hidden = false;
+  countdown.textContent = 'Đang tải tập tiếp theo…';
+  try {
+    const result = await api(`/stream/${movie.type || 'series'}/${encodeURIComponent(next.id)}.json`);
+    if (state.view !== 'player' || state.current !== movie || state.episodeId !== previous || !video.isConnected || state.streamRequest !== request) return;
+    const list = (result.streams || []).filter(source => source.url && !source.externalUrl);
+    const source = list.find(item => item.name === state.preferredSource) || list[0];
+    if (!source) throw Error('Chưa có nguồn phát trực tiếp. Bạn có thể thử lại hoặc chọn nguồn khác.');
+    // Keep the same video element and fullscreen container across episodes.
+    // Rebuilding either would close Android WebView's native fullscreen player.
+    state.playbackCleanup?.();
+    state.playbackCleanup = null;
+    panel.remove();
+    state.episodeId = next.id;
+    state.streams = result.streams || [];
+    state.preferredSource = source.name;
+    rememberEpisode(next.id);
+    setupNextEpisode(video, wrap);
+    const statusEl = document.getElementById('player-status');
+    statusEl.hidden = true;
+    loadVideoSource(video, source, statusEl);
+  } catch (e) {
+    if (state.view !== 'player' || state.streamRequest !== request || !video.isConnected) return;
+    countdown.textContent = `Không chuyển được tập: ${e.message}`;
+    retry();
   }
 }
 
@@ -514,7 +558,7 @@ function setupNextEpisode(video, wrap) {
   const advance = () => {
     if (advancing || !video.isConnected || state.view !== 'player') return;
     advancing = true;
-    streams(next.id, false, true);
+    advanceNextEpisode(next, video, wrap, panel, () => { advancing = false; });
   };
   panel.querySelector('#next-now').onclick = advance;
   panel.querySelector('#next-cancel').onclick = () => { cancelled = true; panel.hidden = true; };

@@ -48,7 +48,7 @@ function player(f, episode = 'ep1') {
   let panel;
   f.context.video = video;
   f.context.wrap = { append(p) { panel = p; } };
-  f.run(`state.current = {id:'series', videos:[{id:'ep1'},{id:'ep2'}]}; state.view='player'; state.episodeId='${episode}'; calls=[]; streams=(...args)=>calls.push(args); setupNextEpisode(video,wrap);`);
+  f.run(`state.current = {id:'series', videos:[{id:'ep1'},{id:'ep2'}]}; state.view='player'; state.episodeId='${episode}'; calls=[]; advanceNextEpisode=(...args)=>calls.push(args); setupNextEpisode(video,wrap);`);
   return { video, handlers, get panel() { return panel; } };
 }
 
@@ -60,8 +60,8 @@ test('suggests at 10s, waits through pause/buffering, then advances exactly once
   assert.equal(f.run('calls.length'), 0);
   p.handlers.ended(); p.handlers.ended();
   assert.equal(f.run('calls.length'), 1);
-  assert.equal(f.run('calls[0][0]'), 'ep2');
-  assert.equal(f.run('calls[0][2]'), true);
+  assert.equal(f.run('calls[0][0].id'), 'ep2');
+  assert.equal(f.run('calls[0][1] === video'), true);
 });
 
 test('cancel prevents automatic next; navigating away removes listeners', () => {
@@ -76,4 +76,17 @@ test('last episode never suggests a nonexistent next episode', () => {
   const f = fixture(); const p = player(f, 'ep2');
   assert.equal(p.panel, undefined);
   assert.equal(Object.keys(p.handlers).length, 0);
+});
+
+ test('next episode changes source in place without rebuilding fullscreen video or navigation', async () => {
+  const f = fixture();
+  f.context.fetch = async () => ({ok:true,json:async()=>({streams:[{name:'VN',url:'next.m3u8'}]})});
+  f.context.video = {isConnected:true};
+  f.context.wrap = {};
+  f.context.panel = {hidden:true,querySelector:()=>({textContent:''}),remove(){}};
+  f.run(`state.view='player'; state.current={id:'series',type:'series'}; state.episodeId='ep1'; state.preferredSource='VN'; loaded=null; setupNextEpisode=()=>{}; loadVideoSource=(v,s)=>{loaded={v,s}}; setView=()=>{throw Error('Must not navigate or rebuild fullscreen')};`);
+  await f.run(`advanceNextEpisode({id:'ep2'},video,wrap,panel,()=>{})`);
+  assert.equal(f.run('state.episodeId'), 'ep2');
+  assert.equal(f.run('loaded.v === video'), true);
+  assert.equal(f.run('loaded.s.url'), 'next.m3u8');
 });
