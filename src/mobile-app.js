@@ -34,7 +34,12 @@ function rememberEpisode(id) {
 function renderEpisodes(page) {
   const target = document.getElementById('episode-browser');
   if (!target) return;
-  const videos = state.current.videos || [];
+  if (state.audioModes && !state.selectedAudio) {
+    target.innerHTML = '<p class="notice">Chọn chế độ ở trên để mở danh sách tập.</p>';
+    return;
+  }
+  const videos = episodeVideos();
+  if (!videos.length) { target.innerHTML = '<p class="notice">Chưa có tập cho chế độ này.</p>'; return; }
   const last = watchedEpisode()?.id;
   const selected = videos.findIndex(v => v.id === last);
   const pages = Math.ceil(videos.length / 25);
@@ -60,6 +65,46 @@ function renderEpisodes(page) {
       streams(episode.id, true, true);
     }
   };
+}
+
+function episodeVideos() {
+  const version = state.current?.audioVersions?.find(item => audioMode({name: item.name}) === state.selectedAudio);
+  return version?.videos || state.current?.videos || [];
+}
+
+async function prepareAudioPicker(movie) {
+  const target = document.getElementById('audio-picker');
+  target.innerHTML = '<p class="notice">Đang tải chế độ xem…</p>';
+  try {
+    let modes = [...new Set((movie.audioVersions || []).map(item => audioMode({name:item.name})))];
+    if (!modes.length) {
+      const id = movie.videos?.[0]?.id || movie.id;
+      const result = await api(`/stream/${movie.type || 'movie'}/${encodeURIComponent(id)}.json`);
+      modes = [...new Set((result.streams || []).map(audioMode))];
+    }
+    if (state.current !== movie || state.view !== 'detail') return;
+    state.audioModes = modes;
+    const previous = readStored(`vietstream-audio:${movie.id}`, null);
+    state.selectedAudio = modes.includes(previous?.audio) ? previous.audio : modes.length === 1 ? modes[0] : '';
+    target.innerHTML = `<div class="audio-choice"><label for="audio-mode">1. Chọn chế độ xem</label><select id="audio-mode"><option value="">Chọn Vietsub / Lồng tiếng…</option>${modes.map(mode => `<option value="${escapeHtml(mode)}" ${mode === state.selectedAudio ? 'selected' : ''}>${escapeHtml(mode)}</option>`).join('')}</select><small>${modes.length ? 'Chọn chế độ trước, sau đó bấm tập để xem ngay.' : 'Chưa có chế độ xem khả dụng.'}</small></div>`;
+    const apply = () => {
+      const button = document.getElementById('movie-play');
+      button.disabled = !state.selectedAudio;
+      const videos = episodeVideos();
+      button.dataset.id = videos.find(video => video.id === watchedEpisode()?.id)?.id || videos[0]?.id || movie.id;
+      renderEpisodes();
+    };
+    document.getElementById('audio-mode').onchange = event => {
+      state.selectedAudio = event.target.value;
+      state.audioPreference = state.selectedAudio ? {audio:state.selectedAudio} : null;
+      writeStored(`vietstream-audio:${movie.id}`, state.audioPreference);
+      apply();
+    };
+    apply();
+  } catch {
+    if (state.current !== movie || state.view !== 'detail') return;
+    target.innerHTML = '<p class="notice">Không tải được chế độ xem.</p><button class="secondary" data-action="audio-retry">Thử lại</button>';
+  }
 }
 
 const saved = () => { try { return JSON.parse(localStorage.getItem('vietstream-library') || '[]'); } catch { return []; } };
@@ -318,6 +363,8 @@ async function detail(type, id, push = true) {
   try {
     const { meta: m } = await api(`/meta/${type}/${encodeURIComponent(id)}.json`);
     state.current = m;
+    state.audioModes = [];
+    state.selectedAudio = '';
     state.lastDetail = { type, id };
     const inLibrary = saved().some(x => x.id === m.id);
     app.innerHTML = `
@@ -331,15 +378,17 @@ async function detail(type, id, push = true) {
             <div class="meta-line">${escapeHtml(m.releaseInfo || m.year || '')} ${m.runtime ? `· ${escapeHtml(m.runtime)}` : ''}</div>
             <p class="description">${escapeHtml(m.description || 'Chưa có mô tả.')}</p>
             <div class="actions">
-              <button class="primary" data-action="streams" data-id="${escapeHtml(watchedEpisode()?.id || m.videos?.[0]?.id || m.id)}">▶ Xem phim</button>
+              <button id="movie-play" disabled class="primary" data-action="streams" data-id="${escapeHtml(watchedEpisode()?.id || m.videos?.[0]?.id || m.id)}">▶ Xem phim</button>
               <button class="secondary" data-action="library-toggle" data-id="${escapeHtml(m.id)}">${inLibrary ? '✓ Đã lưu' : '＋ Lưu vào tủ phim'}</button>
             </div>
           </div>
         </div>
+        <section id="audio-picker"></section>
         <section id="episode-browser"></section>
       </div>
     `;
     if (m.videos?.length) renderEpisodes();
+    prepareAudioPicker(m);
   } catch (e) {
     error(e);
   }
@@ -350,6 +399,7 @@ function audioMode(source) {
   if (/long\s*tieng|dub/.test(label)) return 'Lồng tiếng';
   if (/thuyet\s*minh|voice.?over/.test(label)) return 'Thuyết minh';
   if (/vietsub|phu\s*de|sub/.test(label)) return 'Vietsub';
+  if (/song\s*ngu/.test(label)) return 'Song ngữ';
   // Unknown versions must not be silently treated as Vietsub.
   return source.behaviorHints?.bingeGroup || source.name || 'Nguồn khác';
 }
@@ -374,7 +424,8 @@ async function streams(id, push = true, autoPlay = false) {
   state.episodeId = id;
   status('Đang lấy các nguồn phát tốc độ cao...');
   try {
-    const { streams: list } = await api(`/stream/${m.type || 'movie'}/${encodeURIComponent(id)}.json`);
+      const { streams: available } = await api(`/stream/${m.type || 'movie'}/${encodeURIComponent(id)}.json`);
+      const list = state.selectedAudio ? (available || []).filter(source => audioMode(source) === state.selectedAudio) : available;
     if (state.view !== 'streams' || state.current !== m || state.episodeId !== id || request !== state.streamRequest) return;
     state.streams = list || [];
     const preference = readStored(`vietstream-audio:${m.id}`, null);
@@ -574,7 +625,7 @@ async function advanceNextEpisode(next, video, wrap, panel, retry) {
 }
 
 function setupNextEpisode(video, wrap) {
-  const videos = state.current.videos || [];
+  const videos = episodeVideos();
   const index = videos.findIndex(v => v.id === state.episodeId);
   const next = index >= 0 ? videos[index + 1] : null;
   if (!next) return;
@@ -668,6 +719,7 @@ document.addEventListener('click', event => {
     document.querySelectorAll('[data-audio]').forEach(source => { source.hidden = !!button.dataset.mode && source.dataset.audio !== button.dataset.mode; });
   }
   else if (action === 'episode-prev') renderEpisodes(state.episodePage - 1);
+  else if (action === 'audio-retry') prepareAudioPicker(state.current);
   else if (action === 'episode-next') renderEpisodes(state.episodePage + 1);
   else if (action === 'library-toggle') toggleLibrary(id);
   else if (action === 'overlay-lock') toggleOverlayLock();

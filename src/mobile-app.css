@@ -19,3 +19,5 @@
 /* Compact 5 × 5 episode picker: 25 episodes per page. */
 .episode-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.episode-chip{min-height:58px;padding:8px 4px;font-weight:700}.episode-chip small{font-size:10px;font-weight:400;color:#aeb3bd}.episode-chip.is-current small{color:#fff}.episode-tools>label{display:flex;align-items:center;gap:10px}.episode-tools select{flex:1;min-width:0}.episode-pages{font-size:12px}.episode-pages button{padding:10px 12px}@media(max-width:480px){.episode-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.episode-tools{gap:10px}.episode-tools form{flex-wrap:nowrap}.episode-tools input{width:80px;min-width:0}.episode-chip.is-current small:last-child{font-size:8px}}
 .source-list [hidden]{display:none}
+
+.audio-choice{display:grid;gap:10px;padding:18px;background:#1b1e25;border:1px solid #31353d;border-radius:14px;margin-top:24px;max-width:670px}.audio-choice label{font-weight:800;font-size:17px}.audio-choice select{width:100%;padding:14px;background:#292d36;color:#fff;border:1px solid #646b78;border-radius:10px;font:inherit}.audio-choice small{color:#aeb3bd;line-height:1.5}

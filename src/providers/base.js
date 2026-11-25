@@ -125,6 +125,17 @@ class BaseProvider {
 
   buildMeta(d, { withVideos = true } = {}) {
     if (!d) return null;
+    const audioVersions = [];
+    for (const server of d.servers || []) {
+      if (!server.items?.length) continue;
+      const name = detectAudio(server.serverName, detectAudio(d.lang, 'Vietsub'));
+      const videos = this.videosFromServers([server], `${this.prefix}${d.slug}`);
+      const existing = audioVersions.find(version => version.name === name);
+      if (existing) {
+        const ids = new Set(existing.videos.map(video => video.id));
+        existing.videos.push(...videos.filter(video => !ids.has(video.id)));
+      } else audioVersions.push({ name, videos });
+    }
     const meta = {
       id: `${this.prefix}${d.slug}`,
       type: d.type === 'series' ? 'series' : 'movie',
@@ -142,6 +153,7 @@ class BaseProvider {
     if (meta.type === 'series' && withVideos && Array.isArray(d.videos)) {
       meta.videos = d.videos;
     }
+    meta.audioVersions = audioVersions;
     return meta;
   }
 

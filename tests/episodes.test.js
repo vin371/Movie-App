@@ -41,6 +41,18 @@ test('search text survives state recreation including clearing', () => {
   assert.equal(f.run(`readStored('vietstream-search', 'fallback')`), '');
 });
 
+test('mode must be selected before episodes become available; only selected version episodes appear', async () => {
+  const f = fixture();
+  f.run(`state.view='detail'; state.current={id:'show',videos:[{id:'ep1'},{id:'ep2'}],audioVersions:[{name:'Vietsub',videos:[{id:'ep1'},{id:'ep2'}]},{name:'Lồng tiếng',videos:[{id:'ep1'}]}]}; state.audioModes=[]; state.selectedAudio='';`);
+  await f.run('prepareAudioPicker(state.current)');
+  assert.equal(f.elements.get('movie-play').disabled, true);
+  assert.doesNotMatch(f.elements.get('episode-browser').innerHTML, /class="episode-chip/);
+  f.elements.get('audio-mode').onchange({target:{value:'Lồng tiếng'}});
+  assert.equal(f.elements.get('movie-play').disabled, false);
+  assert.equal((f.elements.get('episode-browser').innerHTML.match(/class="episode-chip/g)||[]).length, 1);
+  assert.equal(f.run(`readStored('vietstream-audio:show',null).audio`), 'Lồng tiếng');
+});
+
 function player(f, episode = 'ep1') {
   const handlers = {};
   const video = { duration: 120, currentTime: 109, paused: false, isConnected: true,
